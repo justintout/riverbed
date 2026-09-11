@@ -308,9 +308,25 @@ riverbed auth example-oauth
 ```
 
 The command prints a URL, serves the redirect at `/oauth/callback/<server>`, and
-stores the token. Riverbed writes each refreshed token back to the database, so a
-restart does not need a browser again. The daemon does not wait for a browser. If a
-server has no usable token, the daemon logs the `riverbed auth` command to run.
+stores both the token and what registration produced: the client credentials and the
+token endpoint.
+
+Storing the registration is what lets a restart refresh on its own. Riverbed rebuilds
+an OAuth client from it, so an expired access token is exchanged for a new one
+against the token endpoint without a browser, and the refreshed token is written back.
+It also means Riverbed registers itself once with an authorization server rather than
+once per authorization.
+
+The daemon never waits for a browser. If a server has no usable token, it logs the
+`riverbed auth` command to run and carries on with the other servers.
+
+Tokens and client secrets are stored in the database in plain text. The protection is
+file permissions, so keep the database owned by the service user and unreadable by
+others. The systemd unit in the setup skill does this.
+
+If an authorization server changes and the stored registration stops working, discard
+it with `riverbed auth -reset-client <server>`, which registers a new client. Plain
+`-reset` discards only the token and keeps the registration.
 
 ## Serving the transcriptions over MCP
 

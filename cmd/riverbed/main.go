@@ -295,6 +295,8 @@ func authorize(args []string) error {
 	var c common
 	c.bind(fs)
 	reset := fs.Bool("reset", false, "discard the stored token before authorizing")
+	resetClient := fs.Bool("reset-client", false,
+		"also discard the stored client registration, so a new client is registered")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: riverbed auth [flags] <mcp-server-name>")
 		fs.PrintDefaults()
@@ -352,11 +354,17 @@ func authorize(args []string) error {
 	}
 	defer app.Close()
 
-	if *reset {
+	if *reset || *resetClient {
 		if err := app.Store.DeleteToken(ctx, name); err != nil {
 			return err
 		}
 		fmt.Printf("Discarded the stored token for %q.\n", name)
+	}
+	if *resetClient {
+		if err := app.Store.DeleteClient(ctx, name); err != nil {
+			return err
+		}
+		fmt.Printf("Discarded the stored client registration for %q.\n", name)
 	}
 
 	// Listing the tools drives the flow: the transport authorizes on the first
@@ -368,6 +376,11 @@ func authorize(args []string) error {
 
 	if _, err := app.Store.Token(ctx, name); err != nil {
 		return fmt.Errorf("no token was stored for %q: %w", name, err)
+	}
+	if _, err := app.Store.Client(ctx, name); err != nil {
+		// Without the registration, a later restart cannot refresh on its own.
+		logger.Warn("no client registration was stored; a restart will need this command again",
+			"mcp", name, "error", err)
 	}
 
 	fmt.Printf("Authorized %q. %d tools are available:\n", name, len(tools))

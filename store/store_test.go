@@ -578,3 +578,76 @@ func TestConcurrentClaims(t *testing.T) {
 		seen[r.id] = true
 	}
 }
+
+func TestClients(t *testing.T) {
+	s := open(t, 0)
+	ctx := t.Context()
+
+	if _, err := s.Client(ctx, "example"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("want ErrNotFound, got %v", err)
+	}
+
+	want := &OAuthClient{
+		ClientID:     "issued-client",
+		ClientSecret: "issued-secret",
+		AuthURL:      "https://as.example.invalid/authorize",
+		TokenURL:     "https://as.example.invalid/token",
+		AuthStyle:    2,
+		Scopes:       []string{"read", "write"},
+	}
+	if err := s.PutClient(ctx, "example", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Client(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ClientID != want.ClientID || got.ClientSecret != want.ClientSecret {
+		t.Errorf("client = %+v", got)
+	}
+	if got.AuthURL != want.AuthURL || got.TokenURL != want.TokenURL || got.AuthStyle != 2 {
+		t.Errorf("client = %+v", got)
+	}
+	if len(got.Scopes) != 2 || got.Scopes[0] != "read" || got.Scopes[1] != "write" {
+		t.Errorf("scopes = %v", got.Scopes)
+	}
+
+	// Re-registering replaces the record.
+	if err := s.PutClient(ctx, "example", &OAuthClient{ClientID: "second", TokenURL: "https://x.invalid/token"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Client(ctx, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ClientID != "second" || got.ClientSecret != "" || got.Scopes != nil {
+		t.Errorf("replaced client = %+v", got)
+	}
+
+	if err := s.DeleteClient(ctx, "example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Client(ctx, "example"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("want ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestClientAndTokenAreIndependent(t *testing.T) {
+	// Discarding a token must leave the registration, so re-authorizing does not
+	// create a second client on the authorization server.
+	s := open(t, 0)
+	ctx := t.Context()
+
+	if err := s.PutClient(ctx, "example", &OAuthClient{ClientID: "c", TokenURL: "https://x.invalid/token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutToken(ctx, "example", &oauth2.Token{AccessToken: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteToken(ctx, "example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Client(ctx, "example"); err != nil {
+		t.Errorf("the registration should survive: %v", err)
+	}
+}

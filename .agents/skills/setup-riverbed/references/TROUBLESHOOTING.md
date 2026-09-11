@@ -87,8 +87,14 @@ called no agent.
 - **`authorization required, run "riverbed auth X"`.** An OAuth server has no stored
   token. Run `riverbed auth X` where a person can open a browser. The daemon will not
   wait for one.
-- **OAuth completes but fails again after a restart.** The refreshed token could not
-  be stored. Check that the database is writable by the service user.
+- **OAuth completes but needs a browser again after a restart.** Riverbed refreshes
+  on its own only when the client registration was stored alongside the token. The
+  `riverbed auth` run warns if it was not. Check that the database is writable by the
+  service user, since both records are written there.
+- **The authorization server rejects the stored client.** The registration is stale,
+  usually because the server changed. Run `riverbed auth -reset-client <server>` to
+  register a new client. Plain `-reset` keeps the registration and only discards the
+  token.
 - **The device cannot use the Riverbed MCP server.** `mcp_serve.enabled` must be
   true, the type on the device must be Streamable, and the token must equal
   `RIVERBED_MCP_TOKEN`.

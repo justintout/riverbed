@@ -14,6 +14,7 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/justintout/riverbed/config"
+	"github.com/justintout/riverbed/store"
 )
 
 // lightArgs is the input schema of the test tool below.
@@ -234,8 +235,10 @@ func TestSessionIsReused(t *testing.T) {
 
 // memStore is an in-memory TokenStore.
 type memStore struct {
-	tokens map[string]*oauth2.Token
-	writes int
+	tokens       map[string]*oauth2.Token
+	clients      map[string]*store.OAuthClient
+	writes       int
+	clientWrites int
 }
 
 func (m *memStore) Token(_ context.Context, server string) (*oauth2.Token, error) {
@@ -252,6 +255,23 @@ func (m *memStore) PutToken(_ context.Context, server string, tok *oauth2.Token)
 	}
 	m.tokens[server] = tok
 	m.writes++
+	return nil
+}
+
+func (m *memStore) Client(_ context.Context, server string) (*store.OAuthClient, error) {
+	client, ok := m.clients[server]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return client, nil
+}
+
+func (m *memStore) PutClient(_ context.Context, server string, client *store.OAuthClient) error {
+	if m.clients == nil {
+		m.clients = map[string]*store.OAuthClient{}
+	}
+	m.clients[server] = client
+	m.clientWrites++
 	return nil
 }
 
@@ -402,5 +422,193 @@ func TestContentText(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
 		}
+	}
+}
+
+func TestStoredSourceRefreshesWithoutABrowser(t *testing.T) {
+	// A token endpoint that honours one refresh_token grant.
+	var grantType, sentClientID, sentRefresh string
+	refreshes := 0
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		grantType = r.Form.Get("grant_type")
+		sentRefresh = r.Form.Get("refresh_token")
+		sentClientID = r.Form.Get("client_id")
+		if sentClientID == "" {
+			// client_secret_basic puts the id in the Authorization header.
+			if id, _, ok := r.BasicAuth(); ok {
+				sentClientID = id
+			}
+		}
+		refreshes++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-access","refresh_token":"fresh-refresh",` +
+			`"token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer tokenSrv.Close()
+
+	// The state a restart would find: an expired access token, a refresh token,
+	// and the registration that produced them.
+	memory := &memStore{
+		tokens: map[string]*oauth2.Token{"notion": {
+			AccessToken:  "stale-access",
+			RefreshToken: "stored-refresh",
+			TokenType:    "Bearer",
+			Expiry:       time.Now().Add(-time.Hour),
+		}},
+		clients: map[string]*store.OAuthClient{"notion": {
+			ClientID: "registered-client", ClientSecret: "registered-secret",
+			AuthURL: "https://example.invalid/authorize", TokenURL: tokenSrv.URL,
+			Scopes: []string{"read"},
+		}},
+	}
+
+	// No prompter, as in the daemon: needing a browser here would be a failure.
+	o, err := NewOAuth(OAuthOptions{Store: memory, BaseURL: "https://riverbed.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	source := o.stored("notion")
+	if source == nil {
+		t.Fatal("a stored token should produce a source")
+	}
+	tok, err := source.Token()
+	if err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	if tok.AccessToken != "fresh-access" {
+		t.Errorf("access token = %q, want the refreshed one", tok.AccessToken)
+	}
+	if refreshes != 1 {
+		t.Errorf("the token endpoint was called %d times, want 1", refreshes)
+	}
+	if grantType != "refresh_token" {
+		t.Errorf("grant_type = %q", grantType)
+	}
+	if sentRefresh != "stored-refresh" {
+		t.Errorf("refresh_token sent = %q", sentRefresh)
+	}
+	if sentClientID != "registered-client" {
+		t.Errorf("client_id sent = %q, want the stored registration", sentClientID)
+	}
+
+	// The refreshed token must reach the database, or the next restart repeats
+	// this work.
+	stored, err := memory.Token(t.Context(), "notion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.AccessToken != "fresh-access" || stored.RefreshToken != "fresh-refresh" {
+		t.Errorf("stored token = %+v", stored)
+	}
+}
+
+func TestStoredSourceWithoutARegistrationCannotRefresh(t *testing.T) {
+	// Before this change there was no registration to refresh against. The
+	// token is then served as it stands so the transport sees a 401.
+	expired := &oauth2.Token{AccessToken: "stale", Expiry: time.Now().Add(-time.Hour)}
+	memory := &memStore{tokens: map[string]*oauth2.Token{"notion": expired}}
+
+	o, err := NewOAuth(OAuthOptions{Store: memory, BaseURL: "https://riverbed.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := o.stored("notion").Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.AccessToken != "stale" {
+		t.Errorf("access token = %q", tok.AccessToken)
+	}
+	if tok.Valid() {
+		t.Error("the token should still read as expired")
+	}
+}
+
+func TestRegistrationIsRecordedOnAuthorization(t *testing.T) {
+	memory := &memStore{}
+	o, err := NewOAuth(OAuthOptions{Store: memory, BaseURL: "https://riverbed.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This is the config the SDK hands over after a successful exchange.
+	cfg := &oauth2.Config{
+		ClientID:     "issued-client",
+		ClientSecret: "issued-secret",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:   "https://as.example.invalid/authorize",
+			TokenURL:  "https://as.example.invalid/token",
+			AuthStyle: oauth2.AuthStyleInHeader,
+		},
+		Scopes: []string{"read", "write"},
+	}
+	tok := &oauth2.Token{AccessToken: "first", RefreshToken: "r", Expiry: time.Now().Add(time.Hour)}
+
+	if _, err := o.persisting("notion")(t.Context(), cfg, tok); err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := memory.Client(t.Context(), "notion")
+	if err != nil {
+		t.Fatalf("the registration should have been stored: %v", err)
+	}
+	if client.ClientID != "issued-client" || client.ClientSecret != "issued-secret" {
+		t.Errorf("client = %+v", client)
+	}
+	if client.TokenURL != "https://as.example.invalid/token" {
+		t.Errorf("token URL = %q", client.TokenURL)
+	}
+	if client.AuthStyle != int(oauth2.AuthStyleInHeader) {
+		t.Errorf("auth style = %d", client.AuthStyle)
+	}
+	if len(client.Scopes) != 2 {
+		t.Errorf("scopes = %v", client.Scopes)
+	}
+}
+
+func TestStoredRegistrationIsOfferedInsteadOfRegisteringAgain(t *testing.T) {
+	memory := &memStore{clients: map[string]*store.OAuthClient{"notion": {
+		ClientID: "registered-client", ClientSecret: "registered-secret",
+		TokenURL: "https://as.example.invalid/token",
+	}}}
+	o, err := NewOAuth(OAuthOptions{Store: memory, BaseURL: "https://riverbed.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Handler(config.MCP{
+		Name: "notion", URL: "https://mcp.example.invalid/mcp", Transport: "streamable", Auth: "oauth",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The handler keeps its configuration private, so the conversion is checked
+	// directly: it is what decides whether the SDK registers again.
+	credentials := preregistered(memory.clients["notion"])
+	if credentials.ClientID != "registered-client" {
+		t.Errorf("client id = %q", credentials.ClientID)
+	}
+	if credentials.ClientSecretAuth == nil || credentials.ClientSecretAuth.ClientSecret != "registered-secret" {
+		t.Errorf("secret auth = %+v", credentials.ClientSecretAuth)
+	}
+	if credentials.Issuer != "" {
+		t.Error("issuer must stay empty; the SDK does not report it, so it cannot be stored")
+	}
+	if err := credentials.Validate(); err != nil {
+		t.Errorf("the SDK must accept these credentials: %v", err)
+	}
+}
+
+func TestPublicClientHasNoSecretAuth(t *testing.T) {
+	credentials := preregistered(&store.OAuthClient{ClientID: "public-client"})
+	if credentials.ClientSecretAuth != nil {
+		t.Error("a client with no secret is public, so secret auth must be absent")
+	}
+	if err := credentials.Validate(); err != nil {
+		t.Errorf("a public client must validate: %v", err)
 	}
 }

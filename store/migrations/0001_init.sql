@@ -101,6 +101,22 @@ CREATE TABLE tags (
 
 CREATE INDEX tags_tag ON tags (tag);
 
+-- What dynamic client registration produced for an MCP server, so a later run
+-- reuses the registration instead of creating a new client, and can refresh a
+-- token without sending anyone to a browser.
+CREATE TABLE oauth_clients (
+    server        TEXT PRIMARY KEY,
+    client_id     TEXT    NOT NULL,
+    client_secret TEXT    NOT NULL DEFAULT '',
+    auth_url      TEXT    NOT NULL,
+    token_url     TEXT    NOT NULL,
+    -- oauth2.Endpoint.AuthStyle, as chosen from the server's metadata.
+    auth_style    INTEGER NOT NULL DEFAULT 0,
+    -- Space separated, as scopes appear on the wire.
+    scopes        TEXT    NOT NULL DEFAULT '',
+    updated_at    INTEGER NOT NULL
+) WITHOUT ROWID;
+
 -- OAuth tokens for MCP servers that need them.
 CREATE TABLE oauth_tokens (
     server        TEXT PRIMARY KEY,

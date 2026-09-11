@@ -100,6 +100,10 @@ supports a base URL override.
   configuration order throughout. An exact wake word has to beat a fuzzy match.
 - `route.New` embeds every semantic rule's utterances, so it takes a context and
   does I/O. Routing a recording then embeds only the transcription.
+- The only place the MCP SDK reveals what OAuth registration and discovery produced
+  is the `*oauth2.Config` passed to `NewTokenSource`, which is why the registration is
+  recorded there. Without it, `Authorize` would register a new client and send someone
+  to a browser on every restart, because it never attempts a refresh itself.
 - Semantic thresholds are model dependent. Do not hard-code one in a test fixture
   and assume it transfers; `route` tests use a deterministic fake embedder.
 

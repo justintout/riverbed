@@ -17,13 +17,16 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/justintout/riverbed/config"
+	"github.com/justintout/riverbed/store"
 )
 
-// TokenStore persists OAuth tokens between runs, so a restart does not need a
-// browser.
+// TokenStore persists what an authorization produced, so a restart neither needs
+// a browser nor registers a second client.
 type TokenStore interface {
 	Token(ctx context.Context, server string) (*oauth2.Token, error)
 	PutToken(ctx context.Context, server string, tok *oauth2.Token) error
+	Client(ctx context.Context, server string) (*store.OAuthClient, error)
+	PutClient(ctx context.Context, server string, client *store.OAuthClient) error
 }
 
 // ErrAuthorizationRequired reports that a server has no usable token. The
@@ -111,8 +114,10 @@ func (o *OAuth) Handler(cfg config.MCP) (auth.OAuthHandler, error) {
 	}
 
 	redirect := o.RedirectURL(cfg.Name)
-	handler, err := auth.NewAuthorizationCodeHandler(&auth.AuthorizationCodeHandlerConfig{
-		// Riverbed is not pre-registered anywhere, so it registers itself.
+	handlerConfig := &auth.AuthorizationCodeHandlerConfig{
+		// Riverbed is pre-registered nowhere, so it registers itself the first
+		// time. Dynamic registration stays configured as the fallback for a
+		// server Riverbed has not met yet.
 		DynamicClientRegistrationConfig: &auth.DynamicClientRegistrationConfig{
 			Metadata: &oauthex.ClientRegistrationMetadata{
 				ClientName:   "Riverbed",
@@ -128,12 +133,36 @@ func (o *OAuth) Handler(cfg config.MCP) (auth.OAuthHandler, error) {
 		AuthorizationCodeFetcher: o.fetcher(cfg.Name),
 		InitialTokenSource:       o.stored(cfg.Name),
 		NewTokenSource:           o.persisting(cfg.Name),
-	})
+	}
+
+	// A stored registration is offered to the SDK, which prefers it over
+	// registering again. Registering on every authorization would leave a trail
+	// of clients on the authorization server, and some rate-limit it.
+	if client, err := o.store.Client(context.Background(), cfg.Name); err == nil && client.ClientID != "" {
+		handlerConfig.PreregisteredClient = preregistered(client)
+	}
+
+	handler, err := auth.NewAuthorizationCodeHandler(handlerConfig)
 	if err != nil {
 		return nil, fmt.Errorf("oauth handler: %w", err)
 	}
 	o.handlers[cfg.Name] = handler
 	return handler, nil
+}
+
+// preregistered converts a stored registration into the SDK's credentials.
+//
+// Issuer is deliberately left empty. It would make the SDK reject a
+// registration whose authorization server has changed, but the issuer is not
+// among the values the SDK hands back, so it cannot be stored. A stale
+// registration surfaces as a failed authorization, which "riverbed auth -reset"
+// clears.
+func preregistered(client *store.OAuthClient) *oauthex.ClientCredentials {
+	credentials := &oauthex.ClientCredentials{ClientID: client.ClientID}
+	if client.ClientSecret != "" {
+		credentials.ClientSecretAuth = &oauthex.ClientSecretAuth{ClientSecret: client.ClientSecret}
+	}
+	return credentials
 }
 
 // fetcher returns the function the SDK calls to start a flow.
@@ -148,16 +177,45 @@ func (o *OAuth) fetcher(server string) auth.AuthorizationCodeFetcher {
 	}
 }
 
-// stored returns a token source seeded from the database, or nil when no token
-// has been stored yet.
+// stored returns a token source seeded from the database, or nil when nothing
+// has been stored yet, which makes the SDK start a flow.
+//
+// When the registration was stored too, the source is a real oauth2 one built
+// from it, so an expired access token is refreshed against the token endpoint
+// rather than sending someone to a browser. Refreshed tokens are written back.
 func (o *OAuth) stored(server string) oauth2.TokenSource {
-	tok, err := o.store.Token(context.Background(), server)
+	ctx := context.Background()
+	tok, err := o.store.Token(ctx, server)
 	if err != nil || tok == nil || tok.AccessToken == "" {
 		return nil
 	}
-	// The stored token is returned through the persisting wrapper below once
-	// the SDK refreshes it; until then it is used as is.
-	return &storedSource{oauth: o, server: server, token: tok}
+
+	client, err := o.store.Client(ctx, server)
+	if err != nil || client.TokenURL == "" {
+		// Without a registration there is nothing to refresh against, so the
+		// token is used as it stands. An expired one produces a 401, and the
+		// transport then starts the flow.
+		o.log.Debug("no stored oauth registration, cannot refresh without a browser", "mcp", server)
+		return &storedSource{token: tok}
+	}
+
+	cfg := &oauth2.Config{
+		ClientID:     client.ClientID,
+		ClientSecret: client.ClientSecret,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:   client.AuthURL,
+			TokenURL:  client.TokenURL,
+			AuthStyle: oauth2.AuthStyle(client.AuthStyle),
+		},
+		RedirectURL: o.RedirectURL(server),
+		Scopes:      client.Scopes,
+	}
+	return &persistingSource{
+		oauth:  o,
+		server: server,
+		inner:  cfg.TokenSource(ctx, tok),
+		last:   tok.AccessToken,
+	}
 }
 
 // persisting wraps the SDK's token source so every refreshed token is written
@@ -165,6 +223,18 @@ func (o *OAuth) stored(server string) oauth2.TokenSource {
 // restart, sending the user back to a browser.
 func (o *OAuth) persisting(server string) func(context.Context, *oauth2.Config, *oauth2.Token) (oauth2.TokenSource, error) {
 	return func(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) (oauth2.TokenSource, error) {
+		// This config is the only place the SDK reveals what registration and
+		// discovery produced, so it is recorded here.
+		if err := o.store.PutClient(ctx, server, &store.OAuthClient{
+			ClientID:     cfg.ClientID,
+			ClientSecret: cfg.ClientSecret,
+			AuthURL:      cfg.Endpoint.AuthURL,
+			TokenURL:     cfg.Endpoint.TokenURL,
+			AuthStyle:    int(cfg.Endpoint.AuthStyle),
+			Scopes:       cfg.Scopes,
+		}); err != nil {
+			return nil, fmt.Errorf("store client registration for %s: %w", server, err)
+		}
 		if err := o.store.PutToken(ctx, server, tok); err != nil {
 			return nil, fmt.Errorf("store token for %s: %w", server, err)
 		}
@@ -177,26 +247,14 @@ func (o *OAuth) persisting(server string) func(context.Context, *oauth2.Config, 
 	}
 }
 
-// storedSource serves the token loaded from the database and refreshes through
-// the handler when it expires.
+// storedSource serves a token that cannot be refreshed, because no registration
+// was stored alongside it. Returning an expired token makes the transport see a
+// 401 and start the flow.
 type storedSource struct {
-	oauth  *OAuth
-	server string
-
-	mu    sync.Mutex
 	token *oauth2.Token
 }
 
-func (s *storedSource) Token() (*oauth2.Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.token.Valid() {
-		return s.token, nil
-	}
-	// An expired token with no refresh token cannot be renewed here; returning
-	// it makes the transport see a 401 and start the flow.
-	return s.token, nil
-}
+func (s *storedSource) Token() (*oauth2.Token, error) { return s.token, nil }
 
 // persistingSource writes a token back whenever the inner source rotates it.
 type persistingSource struct {
