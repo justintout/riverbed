@@ -167,3 +167,116 @@ func TestMCPFor(t *testing.T) {
 		t.Errorf("other should see only the shared server, got %v", got)
 	}
 }
+
+func TestExpandIgnoresComments(t *testing.T) {
+	// A commented-out agent must not keep demanding its secret.
+	cfg, err := Load(write(t, `
+[webhook]
+token = "shared-secret"
+[store]
+path = "test.db"
+# [[agent]]
+# name = "claude"
+# api_key = "${SOME_KEY_THAT_IS_NOT_SET}"
+`))
+	if err != nil {
+		t.Fatalf("a reference inside a comment should be ignored: %v", err)
+	}
+	if len(cfg.Agents) != 0 {
+		t.Errorf("agents = %v", cfg.Agents)
+	}
+}
+
+func TestExpandIgnoresTrailingComments(t *testing.T) {
+	_, err := Load(write(t, `
+[webhook]
+token = "shared-secret" # see ${ALSO_NOT_SET} for the value
+[store]
+path = "test.db"
+`))
+	if err != nil {
+		t.Errorf("a trailing comment should be ignored: %v", err)
+	}
+}
+
+func TestExpandIgnoresLiteralStrings(t *testing.T) {
+	// A single-quoted string is raw in TOML, so it is left alone.
+	cfg, err := Load(write(t, `
+[webhook]
+token = 'literal ${NOT_SET} value'
+[store]
+path = "test.db"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Webhook.Token != "literal ${NOT_SET} value" {
+		t.Errorf("token = %q, want it verbatim", cfg.Webhook.Token)
+	}
+}
+
+func TestExpandInMultilineString(t *testing.T) {
+	t.Setenv("RIVERBED_TEST_SYSTEM", "be brief")
+	cfg, err := Load(write(t, `
+[webhook]
+token = "t"
+[store]
+path = "test.db"
+[[agent]]
+name = "a"
+kind = "http"
+base_url = "http://localhost:9000"
+system = """
+${RIVERBED_TEST_SYSTEM}
+"""
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(cfg.Agents[0].System, "be brief") {
+		t.Errorf("system = %q", cfg.Agents[0].System)
+	}
+}
+
+func TestExpandLeavesNonReferencesAlone(t *testing.T) {
+	cfg, err := Load(write(t, `
+[webhook]
+token = "price is $5 {literally} and ${} too"
+[store]
+path = "test.db"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Webhook.Token != "price is $5 {literally} and ${} too" {
+		t.Errorf("token = %q", cfg.Webhook.Token)
+	}
+}
+
+func TestExpandHandlesEscapedQuote(t *testing.T) {
+	t.Setenv("RIVERBED_TEST_TOKEN2", "secret")
+	cfg, err := Load(write(t, `
+[webhook]
+token = "a \" quote then ${RIVERBED_TEST_TOKEN2}"
+[store]
+path = "test.db"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Webhook.Token != `a " quote then secret` {
+		t.Errorf("token = %q", cfg.Webhook.Token)
+	}
+}
+
+func TestExampleConfigIsValid(t *testing.T) {
+	for _, key := range []string{
+		"RIVERBED_WEBHOOK_TOKEN", "RIVERBED_MCP_TOKEN",
+		"ANTHROPIC_API_KEY", "HOMEASSISTANT_TOKEN",
+	} {
+		t.Setenv(key, "placeholder")
+	}
+	if _, err := Load("../riverbed.example.toml"); err != nil {
+		t.Errorf("the shipped example must load: %v", err)
+	}
+}

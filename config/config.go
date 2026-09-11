@@ -202,26 +202,139 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-var envRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-// expand replaces every ${VAR} with the environment value. A reference to an
-// unset variable is an error: silently inserting an empty secret would produce
-// a daemon that looks configured and is not.
+// expand replaces every ${VAR} inside a double-quoted TOML string with the
+// environment value.
+//
+// Only double-quoted strings are touched. A reference in a comment is left
+// alone, so commenting out an agent does not keep demanding its secret, and a
+// single-quoted literal string is left alone because TOML processes no escapes
+// there, so a substituted value needing one would be corrupted.
+//
+// A reference to an unset variable is an error: silently inserting an empty
+// secret would produce a daemon that looks configured and is not.
 func expand(s string) (string, error) {
-	var missing []string
-	out := envRef.ReplaceAllStringFunc(s, func(ref string) string {
-		name := ref[2 : len(ref)-1]
-		v, ok := os.LookupEnv(name)
-		if !ok {
-			missing = append(missing, name)
-			return ""
+	var (
+		out     strings.Builder
+		missing []string
+	)
+	out.Grow(len(s))
+
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] == '#':
+			// A comment runs to the end of the line.
+			end := strings.IndexByte(s[i:], '\n')
+			if end < 0 {
+				out.WriteString(s[i:])
+				i = len(s)
+				continue
+			}
+			out.WriteString(s[i : i+end+1])
+			i += end + 1
+
+		case strings.HasPrefix(s[i:], literalMulti):
+			i = copyVerbatim(&out, s, i, literalMulti)
+
+		case s[i] == '\'':
+			i = copyVerbatim(&out, s, i, "'")
+
+		case strings.HasPrefix(s[i:], basicMulti):
+			i = expandString(&out, s, i, basicMulti, &missing)
+
+		case s[i] == '"':
+			i = expandString(&out, s, i, `"`, &missing)
+
+		default:
+			out.WriteByte(s[i])
+			i++
 		}
-		return tomlEscape(v)
-	})
+	}
+
 	if len(missing) > 0 {
 		return "", fmt.Errorf("unset environment variables: %s", strings.Join(missing, ", "))
 	}
-	return out, nil
+	return out.String(), nil
+}
+
+// TOML's multi-line string delimiters.
+const (
+	basicMulti   = `"""`
+	literalMulti = `'''`
+)
+
+// copyVerbatim copies a delimited run unchanged, both delimiters included, and
+// returns the index just past it.
+func copyVerbatim(out *strings.Builder, s string, i int, delim string) int {
+	out.WriteString(delim)
+	i += len(delim)
+	for i < len(s) {
+		if strings.HasPrefix(s[i:], delim) {
+			out.WriteString(delim)
+			return i + len(delim)
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return i
+}
+
+// expandString copies a double-quoted string, substituting ${VAR} as it goes,
+// and returns the index just past the closing delimiter.
+func expandString(out *strings.Builder, s string, i int, delim string, missing *[]string) int {
+	out.WriteString(delim)
+	i += len(delim)
+	for i < len(s) {
+		// A backslash escape is copied whole so that \" does not read as the
+		// end of the string.
+		if s[i] == '\\' && i+1 < len(s) {
+			out.WriteString(s[i : i+2])
+			i += 2
+			continue
+		}
+		if strings.HasPrefix(s[i:], delim) {
+			out.WriteString(delim)
+			return i + len(delim)
+		}
+		if name, width, ok := envReference(s[i:]); ok {
+			value, found := os.LookupEnv(name)
+			if !found {
+				*missing = append(*missing, name)
+			}
+			out.WriteString(tomlEscape(value))
+			i += width
+			continue
+		}
+		out.WriteByte(s[i])
+		i++
+	}
+	return i
+}
+
+// envReference reads a ${NAME} reference at the start of s, returning the name
+// and how many bytes it occupied.
+func envReference(s string) (name string, width int, ok bool) {
+	if !strings.HasPrefix(s, "${") {
+		return "", 0, false
+	}
+	end := strings.IndexByte(s, '}')
+	if end < 0 {
+		return "", 0, false
+	}
+	name = s[2:end]
+	if name == "" {
+		return "", 0, false
+	}
+	for i, r := range name {
+		switch {
+		case r == '_',
+			r >= 'A' && r <= 'Z',
+			r >= 'a' && r <= 'z',
+			i > 0 && r >= '0' && r <= '9':
+		default:
+			return "", 0, false
+		}
+	}
+	return name, end + 1, true
 }
 
 // tomlEscape escapes characters that would otherwise break out of the TOML

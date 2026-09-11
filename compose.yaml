@@ -1,0 +1,26 @@
+# Works with both "docker compose up" and "podman-compose up".
+services:
+  riverbed:
+    build:
+      context: .
+    image: riverbed:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Required: the token the device sends in its Authorization header.
+      RIVERBED_WEBHOOK_TOKEN: ${RIVERBED_WEBHOOK_TOKEN:?set RIVERBED_WEBHOOK_TOKEN}
+      # Required while mcp_serve is enabled in the configuration.
+      RIVERBED_MCP_TOKEN: ${RIVERBED_MCP_TOKEN:-}
+      # Naming a model turns on embedding and semantic retrieval.
+      RIVERBED_EMBED_KIND: potion
+      RIVERBED_EMBED_MODEL: potion-base-8M
+      RIVERBED_LOG_FORMAT: json
+      # Pass through whatever your agents need, for example:
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - riverbed-data:/var/lib/riverbed
+      - ./riverbed.toml:/etc/riverbed/riverbed.toml:ro
+
+volumes:
+  riverbed-data:

@@ -1,0 +1,176 @@
+# Riverbed configuration.
+#
+# Copy to riverbed.toml and edit. Every string may reference an environment
+# variable as ${VAR}; a reference to an unset variable is a startup error, so a
+# missing secret is never silently treated as empty.
+#
+# Hosts below are placeholders. Replace them with your own.
+
+[server]
+addr = ":8080"
+# Required only when an MCP server below uses OAuth: the externally reachable
+# URL, under which the redirect /oauth/callback/<server> is served.
+# base_url = "https://riverbed.example.com"
+
+[webhook]
+# Set this path as the webhook URL on the device.
+path = "/webhook/recording"
+# The device must send "Authorization: Bearer <this>".
+token = "${RIVERBED_WEBHOOK_TOKEN}"
+# How many recordings are processed at once.
+workers = 2
+
+[store]
+path = "/var/lib/riverbed/riverbed.db"
+pool_size = 8
+
+[audio]
+# Keep the m4a audio alongside the transcription. Set false to store only text.
+retain = true
+max_bytes = 33554432 # 32 MiB
+
+# Naming a model turns on embeddings, and with them semantic and hybrid
+# retrieval. Leave model empty for keyword-only search.
+[embedding]
+# potion   static embeddings, in process, sub-millisecond (default)
+# goformer BERT embeddings, in process, slower and more contextual
+# remote   any OpenAI-compatible /v1/embeddings endpoint
+kind = "potion"
+model = "potion-base-8M"
+# potion downloads and caches the model on first use. Point GO_POTION_HOME
+# somewhere persistent so a container does not fetch it again on every start.
+#
+# For kind = "goformer", model is a HuggingFace model directory holding
+# config.json, tokenizer.json and a .safetensors file:
+#   kind = "goformer"
+#   model = "/var/lib/riverbed/models/bge-small-en-v1.5"
+#
+# For kind = "remote":
+#   kind = "remote"
+#   model = "nomic-embed-text"
+#   base_url = "http://localhost:11434/v1"
+#   api_key = "${RIVERBED_EMBED_API_KEY}"
+#
+# dim truncates the vector. Leave unset to keep the model's native width.
+# dim = 256
+
+# Serve the journal to the device or to other agents as an MCP server.
+# Point the device's MCP sandbox at this path with the token as its
+# Authorization header, and it can search its own past notes.
+[mcp_serve]
+enabled = true
+path = "/mcp"
+token = "${RIVERBED_MCP_TOKEN}"
+
+# ---------------------------------------------------------------------------
+# Agents
+# ---------------------------------------------------------------------------
+
+# A self-hosted harness that owns its own tools and memory. Riverbed posts
+# {"prompt": ..., "system": ..., "source": "riverbed"} and reads the reply from
+# plain text, or from a "reply", "text", "response", "content" or "message"
+# field.
+[[agent]]
+name = "shelley"
+kind = "http"
+base_url = "http://localhost:9000/prompt"
+# api_key = "${SHELLEY_TOKEN}"
+# headers = { X-Trace = "on" }
+timeout = "90s"
+
+[[agent]]
+name = "claude"
+kind = "claude"
+model = "claude-sonnet-5"
+api_key = "${ANTHROPIC_API_KEY}"
+max_tokens = 1024
+max_turns = 8
+timeout = "2m"
+
+# [[agent]]
+# name = "gemini"
+# kind = "gemini"
+# model = "gemini-2.5-flash"
+# api_key = "${GEMINI_API_KEY}"
+
+# [[agent]]
+# name = "deepseek"
+# kind = "openai"
+# model = "deepseek-chat"
+# base_url = "https://api.deepseek.com/v1"
+# api_key = "${DEEPSEEK_API_KEY}"
+
+# A small local model, used below as the classifier. Any OpenAI-compatible
+# server works: llama.cpp, LM Studio, Ollama, vLLM.
+[[agent]]
+name = "local"
+kind = "openai"
+model = "qwen3-4b-instruct"
+base_url = "http://localhost:8081/v1"
+api_key = "not-needed"
+max_tokens = 32
+timeout = "20s"
+
+# ---------------------------------------------------------------------------
+# MCP servers
+# ---------------------------------------------------------------------------
+
+# Home Assistant ships an MCP Server integration that speaks SSE and
+# authenticates with a long-lived access token.
+[[mcp]]
+name = "homeassistant"
+url = "http://homeassistant.example.lan:8123/mcp_server/sse"
+transport = "sse"
+auth = "bearer"
+token = "${HOMEASSISTANT_TOKEN}"
+agents = ["claude"]
+
+# A server needing OAuth. Riverbed registers itself, runs the flow once via
+# "riverbed auth <name>", stores the token, and refreshes it from then on.
+# [[mcp]]
+# name = "example-oauth"
+# url = "https://mcp.example.com/mcp"
+# transport = "streamable"   # oauth requires streamable
+# auth = "oauth"
+# scopes = ["read", "write"]
+# agents = ["claude"]
+
+# ---------------------------------------------------------------------------
+# Routing
+# ---------------------------------------------------------------------------
+#
+# The device's webhook does not say which button produced a recording, so the
+# text decides. Rules are tried in order; the first match wins. Anything
+# unmatched goes to the classifier when one is set, and otherwise to default.
+#
+# "journal" is reserved: it stores and embeds the note without calling anything.
+
+[router]
+default = "journal"
+# A small local model resolves what the rules did not match. Comment it out to
+# rely on rules and the default alone.
+classifier = "local"
+
+[[router.rule]]
+prefix = "hey shelley"
+agent = "shelley"
+strip = true              # the agent sees the request without the wake words
+tags = ["shelley"]
+
+[[router.rule]]
+prefix = "note"
+agent = "journal"
+strip = true
+tags = ["note"]
+
+[[router.rule]]
+prefix = "remind me"
+agent = "journal"
+tags = ["reminder"]
+
+# Spoken home-control phrasing, matched against the normalized transcription
+# (lowercased, punctuation removed).
+[[router.rule]]
+regex = "^(turn|switch|set|dim|open|close|lock|unlock) "
+agent = "claude"
+tags = ["home"]
