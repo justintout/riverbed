@@ -1,5 +1,3 @@
-# Riverbed is pure Go, so every build is static and cross compiles without a
-# toolchain for the target.
 BINARY  := riverbed
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -7,32 +5,35 @@ GOFLAGS := -trimpath
 TAGS    := osusergo,netgo
 IMAGE   ?= riverbed
 
-# Because nothing links libc, one binary per architecture covers Debian,
-# Ubuntu, Fedora, Alpine and the rest.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 export CGO_ENABLED = 0
 
-.PHONY: all build test vet fmt check dist clean docker docker-run run
-all: check build
+.PHONY: all help build test vet fmt check dist clean docker docker-run run
 
-build:
+all: check build # Vet, test and build.
+
+help: # Show help for each of the Makefile recipes.
+	@grep -E '^[a-zA-Z0-9 -]+:.*#' Makefile | sort | while read -r l; do \
+		printf "\033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 2- -d'#')\n"; \
+	done
+
+build: # Build ./riverbed for this platform.
 	go build $(GOFLAGS) -tags $(TAGS) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/riverbed
 
-test:
+test: # Run the tests.
 	go test ./...
 
-vet:
+vet: # Run go vet.
 	go vet ./...
 
-fmt:
+fmt: # Format every Go file in place.
 	gofmt -l -w .
 
-check: vet test
+check: vet test # Vet, test, and fail if anything is unformatted.
 	@test -z "$$(gofmt -l . | tee /dev/stderr)" || { echo "run make fmt"; exit 1; }
 
-# dist writes one static binary per platform into dist/.
-dist: clean
+dist: clean # Build a static binary for every supported platform into dist/.
 	@mkdir -p dist
 	@for platform in $(PLATFORMS); do \
 		os=$${platform%/*}; arch=$${platform#*/}; \
@@ -42,18 +43,18 @@ dist: clean
 	done
 	@cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
 
-docker:
+docker: # Build the container image.
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 
-docker-run:
+docker-run: # Run the container image against ./riverbed.toml.
 	docker run --rm -p 8080:8080 \
 		-v riverbed-data:/var/lib/riverbed \
 		-v $(PWD)/riverbed.toml:/etc/riverbed/riverbed.toml:ro \
 		-e RIVERBED_WEBHOOK_TOKEN \
 		$(IMAGE):latest
 
-run: build
+run: build # Build, then serve with ./riverbed.toml.
 	./$(BINARY) serve -config riverbed.toml
 
-clean:
+clean: # Remove the binary and dist/.
 	rm -rf dist $(BINARY)

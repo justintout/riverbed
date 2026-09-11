@@ -137,7 +137,8 @@ func (r *Router) Route(ctx context.Context, transcription string) Decision {
 	text := strings.TrimSpace(transcription)
 	normalized := Normalize(text)
 
-	// Exact matchers first: they cost nothing and leave no doubt.
+	// Exact matchers run before semantic ones, so a wake word always wins over
+	// a close paraphrase.
 	for _, rule := range r.rules {
 		if rule.prefix != "" {
 			if !matchPrefix(normalized, rule.prefix) {
@@ -169,7 +170,6 @@ func (r *Router) Route(ctx context.Context, transcription string) Decision {
 		}
 	}
 
-	// Then meaning, which needs one embedding and no model call.
 	if matches, err := r.semanticScores(ctx, text); err != nil {
 		// A failed embedding must not lose the recording, so routing carries on
 		// to the classifier and the default.

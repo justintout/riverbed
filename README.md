@@ -395,9 +395,10 @@ process stops.
 ## Building
 
 ```sh
+make help       # list every target
 make            # vet, test, build
 make test
-make dist       # static binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64
+make dist       # static binaries for linux and darwin, amd64 and arm64
 ```
 
 The binaries do not link libc, so one Linux binary for each architecture runs on

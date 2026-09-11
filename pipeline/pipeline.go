@@ -100,7 +100,6 @@ func (p *Pipeline) Notify() {
 
 // Run processes recordings until ctx is cancelled.
 func (p *Pipeline) Run(ctx context.Context) error {
-	// Work interrupted by a previous run is claimable again.
 	if n, err := p.opts.Store.RequeueRunning(ctx); err != nil {
 		return fmt.Errorf("pipeline: recover interrupted recordings: %w", err)
 	} else if n > 0 {

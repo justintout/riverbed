@@ -1,4 +1,3 @@
-# Works with both "docker compose up" and "podman-compose up".
 services:
   riverbed:
     build:

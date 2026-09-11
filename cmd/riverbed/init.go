@@ -119,7 +119,6 @@ func initialize(args []string) error {
 	if err := os.WriteFile(*out, []byte(rendered), 0o644); err != nil {
 		return err
 	}
-	// The secrets file is readable by its owner only.
 	if err := os.WriteFile(envPath, []byte(config.EnvFile(secrets)), 0o600); err != nil {
 		return err
 	}

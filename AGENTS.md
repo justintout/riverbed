@@ -13,12 +13,8 @@ and makes every recording searchable by keyword and by meaning.
 ## Commands
 
 ```sh
+make help       # every target, with a description
 make            # vet, test, build
-make test       # go test ./...
-make vet
-make fmt        # gofmt -l -w .
-make build      # ./riverbed
-make dist       # static binaries for linux and darwin, amd64 and arm64
 make check      # vet, test, and fail if anything is unformatted
 ```
 
@@ -56,8 +52,9 @@ temporary directories, so they need no setup and no network, apart from
 
 ## Conventions
 
-- Comments explain why a choice was made, not what the line does. If a comment
-  restates the code, delete it.
+- Comment only what is unclear or surprising. A comment that restates the code, or
+  that states a general fact about Go or the toolchain, is noise: delete it. Doc
+  comments on exported identifiers should add information the name does not.
 - Errors are wrapped with context that names the subject: `fmt.Errorf("store: read
   token for %s: %w", server, err)`. A provider error already names its agent, so
   callers do not repeat it.

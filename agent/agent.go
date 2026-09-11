@@ -20,7 +20,6 @@ import (
 
 // Agent answers a prompt, optionally by calling tools.
 type Agent interface {
-	// Name is the configured agent name.
 	Name() string
 	// Run answers one prompt.
 	Run(ctx context.Context, req Request) (*Response, error)
