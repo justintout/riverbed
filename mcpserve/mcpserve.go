@@ -111,8 +111,8 @@ func (s *Server) authorized(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(token), []byte(s.opts.Token)) == 1
 }
 
-// maxLimit caps how many notes one call may return, so a model cannot ask for
-// the whole database.
+// maxLimit is the largest number of notes one call can return, so that a model
+// cannot request the full database.
 const maxLimit = 50
 
 func (s *Server) search(ctx context.Context, _ *mcp.CallToolRequest, args searchArgs) (*mcp.CallToolResult, any, error) {

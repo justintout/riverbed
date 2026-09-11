@@ -172,7 +172,8 @@ func (p *Pipeline) process(ctx context.Context, rec store.Recording) {
 	started := time.Now()
 
 	if err := p.handle(ctx, rec, log); err != nil {
-		// A cancelled run is a shutdown, not a failure: put the work back.
+		// A cancelled run means the process is stopping. Put the work back so
+		// the next start picks it up.
 		if ctx.Err() != nil {
 			if err := p.opts.Store.Requeue(context.WithoutCancel(ctx), rec.ID); err != nil {
 				log.Error("requeue on shutdown", "error", err)
@@ -216,8 +217,8 @@ func (p *Pipeline) handle(ctx context.Context, rec store.Recording, log *slog.Lo
 	// Embedding happens whatever the route, because every recording belongs to
 	// the searchable journal.
 	if err := p.embed(ctx, rec); err != nil {
-		// A failed embedding costs retrieval quality, not the recording, so it
-		// is logged rather than retried.
+		// A failed embedding reduces retrieval quality but loses no data, so
+		// it is logged instead of retried.
 		log.Error("embed transcription", "error", err)
 	}
 

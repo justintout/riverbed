@@ -1,34 +1,39 @@
 # Riverbed
 
-> A system to receive webhooks from a [Pebble Index 01](https://repebble.com/index) and react
+> A system to receive webhooks from my [Pebble Index 01](https://repebble.com/index) and react
 
-Riverbed is the self-hosted other end of the Index 01's webhook. It receives every
-recording, keeps the audio and transcription in one SQLite file, decides what each
-utterance was for, and hands the ones that ask for something to an agent holding
-tools from your own MCP servers. What it files away stays searchable by wording and
-by meaning.
+Riverbed receives the recordings that a Pebble Index 01 sends to a webhook. It
+stores each recording and its transcription in a SQLite database, decides which
+transcriptions need an agent, and sends those to the agent you configure. The agent
+can use tools from your own MCP servers. You can search the stored transcriptions by
+keyword, by meaning, or by both.
 
-One static binary, no CGo, no sidecar services. Embeddings run inside the process.
+Riverbed builds to a single static binary. It does not use CGo, and it does not
+require another service at run time. Text embedding runs in the same process.
 
-## What it does
+## Features
 
-- **Receives** the device webhook exactly as the Index 01 sends it: a
-  `multipart/form-data` POST carrying `audio`, `transcription`, `recordedAt` and
-  `client`, guarded by a bearer token.
-- **Stores** everything in one SQLite database: recordings, audio, agent replies,
-  every tool call, and tags. One file to back up.
-- **Routes** each transcription by spoken prefix, by regular expression, or with a
-  small local model, because the webhook payload does not say which button was
-  pressed.
-- **Runs agents** with tools from your MCP servers. Claude, Gemini, any
-  OpenAI-compatible endpoint (DeepSeek, llama.cpp, LM Studio, Ollama), or a
-  self-hosted harness over plain HTTP.
-- **Authenticates to MCP servers** with a static token or with full OAuth, which
-  the device itself cannot do.
-- **Retrieves** notes by keyword (FTS5), by meaning (vector search), or both fused
-  together, filtered by time, route, tag, or whether a tool actually ran.
-- **Serves its own journal over MCP**, so the device, or any agent, can search the
-  notes it produced.
+- Receives the Index 01 webhook in the format the device sends: a
+  `multipart/form-data` POST with the fields `audio`, `transcription`, `recordedAt`
+  and `client`. A bearer token protects the endpoint.
+- Keeps recordings, audio, agent replies, tool calls and tags in one SQLite
+  database. The database is a single file, which makes backup simple.
+- Selects a route for each transcription with a spoken prefix, a regular
+  expression, or a small local model. The webhook payload does not identify the
+  button that started the recording, so the text must decide.
+- Runs agents with tools from your MCP servers. Supported agents are Claude,
+  Gemini, any OpenAI-compatible endpoint such as DeepSeek, llama.cpp, LM Studio or
+  Ollama, and your own agent over HTTP.
+- Authenticates to MCP servers with a static token or with OAuth. The device
+  supports static tokens only.
+- Searches transcriptions with keywords (FTS5), with vectors, or with both
+  rankings combined. You can filter by time, route, tag, or whether a tool ran.
+- Serves its own stored transcriptions as an MCP server, so the device or another
+  agent can search them.
+
+## Requirements
+
+Go 1.25 or later to build. No other dependency is needed at run time.
 
 ## Quick start
 
@@ -45,12 +50,12 @@ export RIVERBED_MCP_TOKEN=$(openssl rand -hex 32)
 ./riverbed serve -config riverbed.toml
 ```
 
-Then on the device, under the Index tab settings, set the webhook URL to
-`https://your-host/webhook/recording`, add the header
-`Authorization: Bearer <RIVERBED_WEBHOOK_TOKEN>`, and choose whether to send audio,
-text, or both.
+Then configure the device. In the Index tab settings, set the webhook URL to
+`https://your-host/webhook/recording` and add the header
+`Authorization: Bearer <RIVERBED_WEBHOOK_TOKEN>`. Select whether the device sends
+audio, text, or both.
 
-Confirm it end to end without the device:
+To test the system without the device, send an equivalent request:
 
 ```sh
 curl -X POST http://localhost:8080/webhook/recording \
@@ -64,32 +69,34 @@ curl -X POST http://localhost:8080/webhook/recording \
 
 ## Commands
 
-| Command | Purpose |
+| Command | Function |
 | --- | --- |
 | `riverbed serve` | Receive recordings and process them |
-| `riverbed search [query...]` | Search notes; `-since`, `-tag`, `-route`, `-tool-used`, `-limit` |
-| `riverbed auth <mcp-server>` | Run the OAuth flow for one MCP server and store the token |
-| `riverbed backfill` | Embed recordings stored before embedding was enabled |
-| `riverbed migrate` | Create or migrate the database, then exit |
+| `riverbed search [query...]` | Search transcriptions. Flags: `-since`, `-tag`, `-route`, `-tool-used`, `-limit` |
+| `riverbed auth <mcp-server>` | Do the OAuth flow for one MCP server and store the token |
+| `riverbed backfill` | Embed recordings that were stored before you enabled embedding |
+| `riverbed migrate` | Create or migrate the database, then stop |
 | `riverbed version` | Print the version |
 
-Every command takes `-config`, `-log-level` and `-log-format`.
+All commands accept `-config`, `-log-level` and `-log-format`.
 
 ## Routing
 
-The webhook payload carries no button information, so the text decides. Rules are
-tried in order and the first match wins; anything unmatched goes to the classifier
-if one is configured, and otherwise to `router.default`.
+The webhook payload does not identify the button that started the recording.
+Riverbed therefore selects a route from the text. It applies the rules in order and
+uses the first rule that matches. If no rule matches, it asks the classifier, if you
+configured one. If the classifier gives no usable answer, Riverbed uses
+`router.default`.
 
 ```toml
 [router]
-default = "journal"      # store and embed, call nothing
-classifier = "local"     # optional; a small local model resolves the rest
+default = "journal"      # store and embed, call no agent
+classifier = "local"     # optional small local model for unmatched text
 
 [[router.rule]]
 prefix = "hey shelley"
 agent = "shelley"
-strip = true             # the agent sees the request without the wake words
+strip = true             # remove the prefix before the agent sees the text
 tags = ["shelley"]
 
 [[router.rule]]
@@ -98,21 +105,22 @@ agent = "claude"
 tags = ["home"]
 ```
 
-Prefixes match against a normalized transcription, so casing and punctuation do not
-matter and `note` does not match `nothing`. `journal` is a reserved route meaning
-store without calling anything. A classifier failure falls through to the default
-rather than losing a recording.
+Riverbed normalizes the transcription before it applies a rule. Letter case and
+punctuation therefore have no effect, and the prefix `note` does not match the word
+`nothing`. The route name `journal` is reserved. It stores and embeds the recording
+and calls no agent. If the classifier fails, Riverbed uses the default route and
+keeps the recording.
 
 ## Embedding and retrieval
 
-Retrieval is keyword-only until an embedding model is named. Naming one turns on
-vector storage and hybrid search.
+Retrieval uses keywords only until you configure an embedding model. A configured
+model also enables vector storage and hybrid search.
 
-| `kind` | Where it runs | Notes |
+| `kind` | Location | Description |
 | --- | --- | --- |
-| `potion` | In process | Static embeddings, sub-millisecond, 8–131 MB models. The default. |
-| `goformer` | In process | BERT embeddings from a HuggingFace safetensors directory. Slower, more contextual. |
-| `remote` | Over HTTP | Any OpenAI-compatible `/v1/embeddings` endpoint. |
+| `potion` | In process | Static embeddings. Less than one millisecond for each note. Models are 8 MB to 131 MB. This is the default. |
+| `goformer` | In process | BERT embeddings from a HuggingFace safetensors directory. Slower, and better on longer text. |
+| `remote` | HTTP | Any OpenAI-compatible `/v1/embeddings` endpoint. |
 
 ```toml
 [embedding]
@@ -120,25 +128,27 @@ kind = "potion"
 model = "potion-base-8M"
 ```
 
-Keyword matching uses FTS5 with `bm25` ranking. Vector matching uses
-[go-sqlite-vector](https://github.com/justintout/go-sqlite-vector). When a query has
-both, the two rankings are fused with reciprocal rank fusion rather than by mixing
-scores, because `bm25` values and vector distances share no scale. A hybrid query
-therefore ranks every embedded note; use `-limit` to control how many come back.
+Keyword search uses FTS5 with `bm25` ranking. Vector search uses
+[go-sqlite-vector](https://github.com/justintout/go-sqlite-vector). If a query has
+text and a vector, Riverbed combines the two rankings with reciprocal rank fusion.
+It does not add the two scores together, because `bm25` values and vector distances
+use different scales. A hybrid query ranks every embedded note, so use `-limit` to
+control how many results you get.
 
-The model and its dimension are pinned in the database on first use. Pointing a
-populated database at a different model is refused, because the stored vectors
-would no longer be comparable. After enabling embedding on an existing database,
-run `riverbed backfill`.
+Riverbed records the model name and the vector dimension in the database when you
+first use them. If you then configure a different model, Riverbed stops with an
+error, because the stored vectors are no longer comparable. To embed recordings that
+you stored before you enabled embedding, run `riverbed backfill`.
 
-`potion` downloads and caches its model on first use. Set `GO_POTION_HOME` to keep
-that cache on a persistent volume.
+The `potion` embedder downloads its model at first use and caches it. Set
+`GO_POTION_HOME` to keep the cache on a persistent volume.
 
 ## MCP servers
 
-Each server's tools are offered to the agents you list, under the qualified name
-`server.tool`, so two servers may offer the same tool name. An unreachable server
-is logged and skipped rather than breaking the run.
+Riverbed offers the tools of each MCP server to the agents that you list. Tool names
+are qualified as `server.tool`, so two servers can offer a tool with the same name.
+If a server is unavailable, Riverbed writes a log entry and continues with the
+remaining servers.
 
 ```toml
 [[mcp]]
@@ -150,45 +160,45 @@ token = "${HOMEASSISTANT_TOKEN}"
 agents = ["claude"]
 ```
 
-Home Assistant's own MCP Server integration speaks SSE with a long-lived access
-token, so controlling your devices needs no special support here.
+The Home Assistant MCP Server integration uses SSE with a long-lived access token.
+Riverbed needs no additional configuration to control Home Assistant devices.
 
 ### OAuth
 
-The device supports only a static `Authorization` header. Riverbed handles OAuth
-itself: discovery, dynamic client registration and PKCE come from the MCP Go SDK,
-and Riverbed stores the tokens and refreshes them.
+The device can send a static `Authorization` header only. Riverbed does the OAuth
+flow itself. The MCP Go SDK does the discovery, the dynamic client registration and
+PKCE. Riverbed stores the tokens and refreshes them.
 
 ```toml
 [server]
-base_url = "https://riverbed.example.com"   # the redirect is built under this
+base_url = "https://riverbed.example.com"   # Riverbed builds the redirect under this URL
 
 [[mcp]]
 name = "example-oauth"
 url = "https://mcp.example.com/mcp"
-transport = "streamable"                     # oauth requires streamable
+transport = "streamable"                     # OAuth requires the streamable transport
 auth = "oauth"
 scopes = ["read", "write"]
 agents = ["claude"]
 ```
 
-Authorize once, interactively:
+Authorize the server once:
 
 ```sh
 riverbed auth example-oauth
 ```
 
-It prints a URL, serves the redirect at `/oauth/callback/<server>`, and stores the
-token. Refreshed tokens are written back, so a restart does not need a browser
-again. The daemon never blocks on a browser: a server with no usable token logs
-which `riverbed auth` command to run.
+The command prints a URL, serves the redirect at `/oauth/callback/<server>`, and
+stores the token. Riverbed writes each refreshed token back to the database, so a
+restart does not need a browser again. The daemon does not wait for a browser. If a
+server has no usable token, the daemon logs the `riverbed auth` command to run.
 
-## Serving the journal over MCP
+## Serving the transcriptions over MCP
 
-With `mcp_serve` enabled, Riverbed is itself an MCP server offering
-`search_journal` and `recent_notes`. Point the device's MCP sandbox at
-`https://your-host/mcp` with the token as its `Authorization` header, and the
-assistant can search the notes it recorded.
+If you enable `mcp_serve`, Riverbed also operates as an MCP server. It offers the
+tools `search_journal` and `recent_notes`. Set the device MCP sandbox to
+`https://your-host/mcp` and use the token as its `Authorization` header. The
+assistant on the device can then search the transcriptions it recorded.
 
 ```toml
 [mcp_serve]
@@ -207,18 +217,23 @@ model = "claude-sonnet-5"
 api_key = "${ANTHROPIC_API_KEY}"
 ```
 
-`kind` is one of:
+Set `kind` to one of these values:
 
-- `claude` — the Anthropic Messages API.
-- `gemini` — the Gemini API.
-- `openai` — any OpenAI-compatible endpoint. Set `base_url` for DeepSeek,
-  llama.cpp, LM Studio, Ollama or vLLM.
-- `http` — your own harness. Riverbed posts
-  `{"prompt": ..., "system": ..., "source": "riverbed"}` and reads the reply from
-  plain text or from a `reply`, `text`, `response`, `content` or `message` field.
-  The harness owns its own tools; Riverbed does not drive a tool loop for it.
+| `kind` | Description |
+| --- | --- |
+| `claude` | The Anthropic Messages API. |
+| `gemini` | The Gemini API. |
+| `openai` | Any OpenAI-compatible endpoint. Set `base_url` for DeepSeek, llama.cpp, LM Studio, Ollama or vLLM. |
+| `http` | Your own agent. See below. |
 
-The first three run the tool loop themselves, capped by `max_turns`.
+The `claude`, `gemini` and `openai` agents do their own tool-use loop. The
+`max_turns` option limits the number of turns.
+
+For the `http` agent, Riverbed sends
+`{"prompt": ..., "system": ..., "source": "riverbed"}` to the configured URL. It
+reads the reply from plain text, or from a `reply`, `text`, `response`, `content` or
+`message` field. This agent keeps its own tools, and Riverbed does not run a tool
+loop for it.
 
 ## Docker and Podman
 
@@ -231,30 +246,32 @@ docker run --rm -p 8080:8080 \
   riverbed
 ```
 
-Or `docker compose up` / `podman-compose up` with the included `compose.yaml`. The
-image is `distroless/static:nonroot`: no shell, no libc, runs as a non-root user.
-Every command above works unchanged with `podman`.
+You can also use `docker compose up` or `podman-compose up` with the supplied
+`compose.yaml`. The image is based on `distroless/static:nonroot`. It contains no
+shell and no libc, and the container runs as a non-root user. All of these commands
+also work with `podman`.
 
-Keep `/var/lib/riverbed` on a volume. It holds the database and the cached
+Keep `/var/lib/riverbed` on a volume. It contains the database and the cached
 embedding model.
 
 ## Configuration
 
-The full reference with every option is [`riverbed.example.toml`](riverbed.example.toml).
+[`riverbed.example.toml`](riverbed.example.toml) documents every option.
 
-Any double-quoted value may reference an environment variable as `${VAR}`, which
-keeps secrets out of the file. A reference to an unset variable is a startup error
-rather than an empty value. References in comments and in single-quoted strings are
-left alone.
+In a double-quoted value, you can refer to an environment variable as `${VAR}`. This
+keeps secrets out of the file. If the variable is not set, Riverbed stops with an
+error and does not substitute an empty value. Riverbed ignores these references in
+comments and in single-quoted strings.
 
-These environment variables override the file, which is enough to run a container
-without one: `RIVERBED_CONFIG`, `RIVERBED_ADDR`, `RIVERBED_BASE_URL`,
-`RIVERBED_DB`, `RIVERBED_WEBHOOK_TOKEN`, `RIVERBED_MCP_TOKEN`,
+These environment variables replace the values in the file. They are sufficient to
+run a container without a configuration file: `RIVERBED_CONFIG`, `RIVERBED_ADDR`,
+`RIVERBED_BASE_URL`, `RIVERBED_DB`, `RIVERBED_WEBHOOK_TOKEN`, `RIVERBED_MCP_TOKEN`,
 `RIVERBED_EMBED_KIND`, `RIVERBED_EMBED_MODEL`, `RIVERBED_EMBED_BASE_URL`,
 `RIVERBED_EMBED_API_KEY`, `RIVERBED_LOG_LEVEL`, `RIVERBED_LOG_FORMAT`.
 
-The whole configuration is validated at startup and every problem is reported at
-once. There are no fallback paths: a misconfiguration stops the process.
+Riverbed validates all configuration at start up and reports every problem
+together. It contains no fallback paths. If the configuration is not valid, the
+process stops.
 
 ## Building
 
@@ -264,34 +281,36 @@ make test
 make dist       # static binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64
 ```
 
-Because nothing links libc, one Linux binary per architecture covers Debian,
-Ubuntu, Fedora, Alpine and the rest. Building for another platform needs no
-toolchain for it.
+The binaries do not link libc, so one Linux binary for each architecture runs on
+Debian, Ubuntu, Fedora, Alpine and other distributions. To build for a different
+platform, you do not need a toolchain for that platform.
 
 ## Packages
 
-Riverbed is usable as a library. Each package stands on its own:
+You can also use Riverbed as a library. Each package is usable on its own.
 
-| Package | Purpose |
+| Package | Function |
 | --- | --- |
 | `config` | Load and validate the configuration |
-| `store` | SQLite schema, migrations, the work queue, hybrid retrieval |
-| `webhook` | The device's multipart receiver as an `http.Handler` |
-| `embedding` | `Embedder` with in-process and remote implementations |
-| `route` | Prefix, regex and classifier routing |
-| `agent` | The `Agent` interface and its four providers |
-| `tool` | MCP client registry, bearer and OAuth authentication |
-| `mcpserve` | The journal as an MCP server |
-| `pipeline` | Claim, route, embed, run, persist |
+| `store` | SQLite schema, migrations, the work queue and retrieval |
+| `webhook` | The device webhook receiver, as an `http.Handler` |
+| `embedding` | The `Embedder` interface, with in-process and remote implementations |
+| `route` | Prefix, regular expression and classifier routing |
+| `agent` | The `Agent` interface and the four agent types |
+| `tool` | The MCP client registry, with token and OAuth authentication |
+| `mcpserve` | The stored transcriptions, as an MCP server |
+| `pipeline` | Claim, route, embed, run and store |
 
-## How recordings are processed
+## How Riverbed processes a recording
 
-The receiver stores the recording and answers `202` immediately, because the device
-is waiting. A worker then picks it up: the recordings table is the queue, so a
-claim is one transaction, several workers share it, and a restart recovers work in
-flight instead of losing it. A failed recording is retried, and a recording that
-keeps failing is marked failed with the reason kept. A failed embedding costs
-retrieval quality, not the recording.
+The receiver stores the recording and answers with status 202 immediately, because
+the device waits for the response. A worker then processes the recording. The
+recordings table is also the work queue. A worker claims a recording in a single
+transaction, so several workers can share the queue, and a restart recovers the
+recordings that were in progress. If processing fails, Riverbed tries again. If it
+continues to fail, Riverbed marks the recording as failed and keeps the error
+message. If embedding fails, Riverbed writes a log entry and keeps the recording.
+Retrieval quality decreases, but no data is lost.
 
 ## License
 

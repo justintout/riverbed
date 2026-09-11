@@ -122,10 +122,10 @@ func normalize(v []float32) []float32 {
 	return out
 }
 
-// Chunk splits text for embedding. Recordings are short, so the whole
-// transcription is one chunk unless it runs long, in which case it is split on
-// sentence boundaries with an overlap so a thought spanning a boundary is still
-// retrievable.
+// Chunk splits text for embedding. Recordings are usually short, so a
+// transcription becomes a single chunk. Longer text is split on sentence
+// boundaries, with one sentence of overlap, so that a statement which crosses a
+// boundary is still retrievable.
 func Chunk(text string, maxRunes int) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
