@@ -51,6 +51,10 @@ type Webhook struct {
 type Store struct {
 	Path     string `toml:"path"`
 	PoolSize int    `toml:"pool_size"`
+	// SecretKey encrypts the OAuth tokens and client secrets kept in the
+	// database. It is 64 hexadecimal characters, which is 32 bytes. It is
+	// required when an MCP server uses OAuth.
+	SecretKey string `toml:"secret_key"`
 }
 
 // Audio controls retention of the recorded audio.
@@ -82,6 +86,27 @@ type MCPServe struct {
 	Enabled bool   `toml:"enabled"`
 	Path    string `toml:"path"`
 	Token   string `toml:"token"`
+}
+
+// SecretKeyHexLength is the length of store.secret_key, which is 32 bytes as
+// hexadecimal.
+const SecretKeyHexLength = 64
+
+// isHexKey reports whether s is a secret key of the right length. The key itself
+// is parsed by the store; this only rejects an obviously wrong value early, so
+// that validation stays free of dependencies.
+func isHexKey(s string) bool {
+	if len(s) != SecretKeyHexLength {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultSemanticThreshold is the cosine similarity a semantic rule requires
@@ -412,6 +437,7 @@ func (c *Config) applyEnv() {
 	str("RIVERBED_ADDR", &c.Server.Addr)
 	str("RIVERBED_BASE_URL", &c.Server.BaseURL)
 	str("RIVERBED_DB", &c.Store.Path)
+	str("RIVERBED_SECRET_KEY", &c.Store.SecretKey)
 	str("RIVERBED_WEBHOOK_TOKEN", &c.Webhook.Token)
 	str("RIVERBED_EMBED_KIND", &c.Embedding.Kind)
 	str("RIVERBED_EMBED_MODEL", &c.Embedding.Model)
@@ -444,6 +470,10 @@ func (c *Config) Validate() error {
 	}
 	if c.Store.PoolSize < 2 {
 		add("store.pool_size must be at least 2")
+	}
+	if c.Store.SecretKey != "" && !isHexKey(c.Store.SecretKey) {
+		add("store.secret_key must be %d hexadecimal characters; generate one with \"riverbed key\"",
+			SecretKeyHexLength)
 	}
 	if c.Audio.Retain && c.Audio.MaxBytes < 1 {
 		add("audio.max_bytes must be positive when audio.retain is set")
@@ -596,6 +626,9 @@ func (c *Config) Validate() error {
 			}
 			if c.Server.BaseURL == "" {
 				add("mcp %q: server.base_url is required to build the oauth redirect", m.Name)
+			}
+			if c.Store.SecretKey == "" {
+				add("mcp %q: store.secret_key is required to encrypt the tokens oauth produces", m.Name)
 			}
 		default:
 			add("mcp %q: unknown auth %q", m.Name, m.Auth)

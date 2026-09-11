@@ -116,6 +116,7 @@ curl -X POST http://localhost:8080/webhook/recording \
 | `riverbed auth <mcp-server>` | Do the OAuth flow for one MCP server and store the token |
 | `riverbed backfill` | Embed recordings that were stored before you enabled embedding |
 | `riverbed migrate` | Create or migrate the database, then stop |
+| `riverbed key` | Print a new secret key for `store.secret_key` |
 | `riverbed version` | Print the version |
 
 All commands accept `-config`, `-log-level` and `-log-format`.
@@ -320,9 +321,26 @@ once per authorization.
 The daemon never waits for a browser. If a server has no usable token, it logs the
 `riverbed auth` command to run and carries on with the other servers.
 
-Tokens and client secrets are stored in the database in plain text. The protection is
-file permissions, so keep the database owned by the service user and unreadable by
-others. The systemd unit in the setup skill does this.
+The access token, the refresh token and the client secret are encrypted before they
+are written, with AES-256-GCM under `store.secret_key`. A copy of the database
+therefore does not hand over a working credential. `riverbed init` generates a key,
+and `riverbed key` prints a new one:
+
+```toml
+[store]
+secret_key = "${RIVERBED_SECRET_KEY}"
+```
+
+The key is required as soon as an MCP server uses OAuth, and Riverbed refuses to
+start without it. Keep it out of the database and out of the configuration file, which
+is why it is read from the environment. Losing it costs you the stored tokens: run
+`riverbed auth <server>` again.
+
+Encryption here protects the file, not the host. The daemon is unattended, so the key
+has to be readable by the process, which means anyone who can run code as the service
+user can read the credentials. It defends a stolen disk, a copied backup and a
+discarded drive. For the rest of the database, which holds your transcriptions and
+audio in the clear, use full disk encryption and encrypt your backups.
 
 If an authorization server changes and the stored registration stops working, discard
 it with `riverbed auth -reset-client <server>`, which registers a new client. Plain
@@ -402,7 +420,8 @@ These environment variables replace the values in the file. They are sufficient 
 run a container without a configuration file: `RIVERBED_CONFIG`, `RIVERBED_ADDR`,
 `RIVERBED_BASE_URL`, `RIVERBED_DB`, `RIVERBED_WEBHOOK_TOKEN`, `RIVERBED_MCP_TOKEN`,
 `RIVERBED_EMBED_KIND`, `RIVERBED_EMBED_MODEL`, `RIVERBED_EMBED_BASE_URL`,
-`RIVERBED_EMBED_API_KEY`, `RIVERBED_LOG_LEVEL`, `RIVERBED_LOG_FORMAT`.
+`RIVERBED_EMBED_API_KEY`, `RIVERBED_SECRET_KEY`, `RIVERBED_LOG_LEVEL`,
+`RIVERBED_LOG_FORMAT`.
 
 Riverbed validates all configuration at start up and reports every problem
 together. It contains no fallback paths. If the configuration is not valid, the

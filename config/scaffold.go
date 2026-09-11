@@ -52,6 +52,7 @@ type ScaffoldAgent struct {
 const (
 	WebhookTokenEnv = "RIVERBED_WEBHOOK_TOKEN"
 	MCPTokenEnv     = "RIVERBED_MCP_TOKEN"
+	SecretKeyEnv    = "RIVERBED_SECRET_KEY"
 )
 
 // Defaults fills in the values a scaffold leaves empty.
@@ -122,6 +123,15 @@ func (s *Scaffold) Secrets() (map[string]string, error) {
 		return nil, err
 	}
 	secrets[WebhookTokenEnv] = token
+
+	// Generated whether or not an OAuth server is configured yet, so that
+	// adding one later does not mean rewriting the configuration.
+	key, err := SecretKey()
+	if err != nil {
+		return nil, err
+	}
+	secrets[SecretKeyEnv] = key
+
 	if s.MCPServe {
 		token, err := Token()
 		if err != nil {
@@ -131,6 +141,9 @@ func (s *Scaffold) Secrets() (map[string]string, error) {
 	}
 	return secrets, nil
 }
+
+// SecretKey returns a new key for encrypting stored credentials, as hex.
+func SecretKey() (string, error) { return Token() }
 
 // Token returns 32 random bytes as hex, for use as a shared secret.
 func Token() (string, error) {
@@ -196,6 +209,8 @@ workers = 2
 
 [store]
 path = "{{ .DBPath }}"
+# Encrypts the OAuth tokens and client secrets kept in the database.
+secret_key = "${` + SecretKeyEnv + `}"
 
 [audio]
 retain = {{ .RetainAudio }}

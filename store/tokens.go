@@ -25,9 +25,17 @@ func (s *Store) Token(ctx context.Context, server string) (*oauth2.Token, error)
 		&sqlitex.ExecOptions{
 			Args: []any{server},
 			ResultFunc: func(stmt *sqlite.Stmt) error {
+				access, err := unseal(s.secretKey, label(server, "access_token"), stmt.ColumnText(0))
+				if err != nil {
+					return err
+				}
+				refresh, err := unseal(s.secretKey, label(server, "refresh_token"), stmt.ColumnText(1))
+				if err != nil {
+					return err
+				}
 				tok = &oauth2.Token{
-					AccessToken:  stmt.ColumnText(0),
-					RefreshToken: stmt.ColumnText(1),
+					AccessToken:  access,
+					RefreshToken: refresh,
 					TokenType:    stmt.ColumnText(2),
 				}
 				if ms := stmt.ColumnInt64(3); ms > 0 {
@@ -54,6 +62,14 @@ func (s *Store) PutToken(ctx context.Context, server string, tok *oauth2.Token) 
 	if tokenType == "" {
 		tokenType = "Bearer"
 	}
+	access, err := seal(s.secretKey, label(server, "access_token"), tok.AccessToken)
+	if err != nil {
+		return err
+	}
+	refresh, err := seal(s.secretKey, label(server, "refresh_token"), tok.RefreshToken)
+	if err != nil {
+		return err
+	}
 	return s.exec(ctx,
 		`INSERT INTO oauth_tokens (server, access_token, refresh_token, token_type, expiry, updated_at)
 		 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -63,7 +79,7 @@ func (s *Store) PutToken(ctx context.Context, server string, tok *oauth2.Token) 
 		   token_type = excluded.token_type,
 		   expiry = excluded.expiry,
 		   updated_at = excluded.updated_at`,
-		server, tok.AccessToken, tok.RefreshToken, tokenType, expiry, millis(time.Now()))
+		server, access, refresh, tokenType, expiry, millis(time.Now()))
 }
 
 // DeleteToken removes a stored token, which forces a fresh authorization.
@@ -99,9 +115,13 @@ func (s *Store) Client(ctx context.Context, server string) (*OAuthClient, error)
 		&sqlitex.ExecOptions{
 			Args: []any{server},
 			ResultFunc: func(stmt *sqlite.Stmt) error {
+				secret, err := unseal(s.secretKey, label(server, "client_secret"), stmt.ColumnText(1))
+				if err != nil {
+					return err
+				}
 				client = &OAuthClient{
 					ClientID:     stmt.ColumnText(0),
-					ClientSecret: stmt.ColumnText(1),
+					ClientSecret: secret,
 					AuthURL:      stmt.ColumnText(2),
 					TokenURL:     stmt.ColumnText(3),
 					AuthStyle:    int(stmt.ColumnInt64(4)),
@@ -122,6 +142,10 @@ func (s *Store) Client(ctx context.Context, server string) (*OAuthClient, error)
 
 // PutClient stores or replaces the client registration for an MCP server.
 func (s *Store) PutClient(ctx context.Context, server string, c *OAuthClient) error {
+	secret, err := seal(s.secretKey, label(server, "client_secret"), c.ClientSecret)
+	if err != nil {
+		return err
+	}
 	return s.exec(ctx,
 		`INSERT INTO oauth_clients
 		   (server, client_id, client_secret, auth_url, token_url, auth_style, scopes, updated_at)
@@ -134,7 +158,7 @@ func (s *Store) PutClient(ctx context.Context, server string, c *OAuthClient) er
 		   auth_style = excluded.auth_style,
 		   scopes = excluded.scopes,
 		   updated_at = excluded.updated_at`,
-		server, c.ClientID, c.ClientSecret, c.AuthURL, c.TokenURL,
+		server, c.ClientID, secret, c.AuthURL, c.TokenURL,
 		c.AuthStyle, strings.Join(c.Scopes, " "), millis(time.Now()))
 }
 

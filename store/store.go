@@ -41,12 +41,16 @@ type Options struct {
 	// zero to open without vector support.
 	EmbedModel string
 	EmbedDim   int
+	// SecretKey encrypts stored credentials. It must be KeyBytes long. Leave it
+	// empty to store them as they are.
+	SecretKey []byte
 }
 
 // Store is a pool of connections to one Riverbed database.
 type Store struct {
-	pool     *sqlitex.Pool
-	embedDim int
+	pool      *sqlitex.Pool
+	embedDim  int
+	secretKey []byte
 }
 
 // Open opens or creates the database, registers vector functions on every
@@ -87,7 +91,12 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("store: open %s: %w", opts.Path, err)
 	}
 
-	s := &Store{pool: pool, embedDim: opts.EmbedDim}
+	if n := len(opts.SecretKey); n != 0 && n != KeyBytes {
+		pool.Close()
+		return nil, fmt.Errorf("store: secret key is %d bytes, want %d", n, KeyBytes)
+	}
+
+	s := &Store{pool: pool, embedDim: opts.EmbedDim, secretKey: opts.SecretKey}
 	if err := s.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err
@@ -104,6 +113,9 @@ func (s *Store) Close() error { return s.pool.Close() }
 
 // VectorEnabled reports whether vector columns are written and queryable.
 func (s *Store) VectorEnabled() bool { return s.embedDim > 0 }
+
+// CredentialsEncrypted reports whether stored credentials are encrypted.
+func (s *Store) CredentialsEncrypted() bool { return len(s.secretKey) > 0 }
 
 // conn takes a connection from the pool. The returned function returns it.
 func (s *Store) conn(ctx context.Context) (*sqlite.Conn, func(), error) {

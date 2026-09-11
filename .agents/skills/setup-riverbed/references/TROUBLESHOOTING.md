@@ -91,6 +91,11 @@ called no agent.
   on its own only when the client registration was stored alongside the token. The
   `riverbed auth` run warns if it was not. Check that the database is writable by the
   service user, since both records are written there.
+- **`cannot decrypt credential, the secret key may have changed`.** `store.secret_key`
+  is not the key the credentials were written with. Restore the original key, or run
+  `riverbed auth -reset-client <server>` to discard and replace them.
+- **`stored credential is not encrypted; re-authorize to replace it`.** The credentials
+  predate the key. Run `riverbed auth <server>` again to rewrite them encrypted.
 - **The authorization server rejects the stored client.** The registration is stale,
   usually because the server changed. Run `riverbed auth -reset-client <server>` to
   register a new client. Plain `-reset` keeps the registration and only discards the

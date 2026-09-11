@@ -70,11 +70,21 @@ func Open(ctx context.Context, opts OpenOptions) (*App, error) {
 		opts.Logger.Info("embedding disabled, retrieval is keyword only")
 	}
 
+	var secretKey []byte
+	if cfg.Store.SecretKey != "" {
+		secretKey, err = store.ParseKey(cfg.Store.SecretKey)
+		if err != nil {
+			app.closeModel()
+			return nil, err
+		}
+	}
+
 	db, err := store.Open(ctx, store.Options{
 		Path:       cfg.Store.Path,
 		PoolSize:   cfg.Store.PoolSize,
 		EmbedModel: embedName,
 		EmbedDim:   embedDim,
+		SecretKey:  secretKey,
 	})
 	if err != nil {
 		app.closeModel()

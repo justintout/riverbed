@@ -23,6 +23,10 @@ workers = 2
 [store]
 path = "/var/lib/riverbed/riverbed.db"
 pool_size = 8
+# Encrypts the OAuth tokens and client secrets kept in the database, so a copy of
+# the file does not hand over a working credential. Required when an MCP server
+# below uses OAuth. Generate one with "riverbed key".
+secret_key = "${RIVERBED_SECRET_KEY}"
 
 [audio]
 # Keep the m4a audio alongside the transcription. Set false to store only text.

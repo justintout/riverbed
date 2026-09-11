@@ -280,6 +280,8 @@ func TestExampleConfigIsValid(t *testing.T) {
 	} {
 		t.Setenv(key, "placeholder")
 	}
+	// The key has a required format, so a placeholder will not do.
+	t.Setenv("RIVERBED_SECRET_KEY", strings.Repeat("ab", 32))
 	if _, err := Load("../riverbed.example.toml"); err != nil {
 		t.Errorf("the shipped example must load: %v", err)
 	}
@@ -364,5 +366,99 @@ tags = ["home"]
 	}
 	if got := cfg.Router.Threshold(rule); got != 0.55 {
 		t.Errorf("effective threshold = %v, want the rule value", got)
+	}
+}
+
+func TestOAuthRequiresASecretKey(t *testing.T) {
+	cfg := Default()
+	cfg.Webhook.Token = "x"
+	cfg.Server.BaseURL = "https://riverbed.example"
+	cfg.MCP = []MCP{{
+		Name: "s", URL: "https://example.invalid/mcp", Transport: "streamable", Auth: "oauth",
+	}}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "store.secret_key is required") {
+		t.Fatalf("want a secret key error, got %v", err)
+	}
+
+	cfg.Store.SecretKey = strings.Repeat("ab", 32)
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("with a key it should be valid: %v", err)
+	}
+}
+
+func TestBearerAuthNeedsNoSecretKey(t *testing.T) {
+	cfg := Default()
+	cfg.Webhook.Token = "x"
+	cfg.MCP = []MCP{{
+		Name: "s", URL: "https://example.invalid/sse", Transport: "sse",
+		Auth: "bearer", Token: "t",
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("a bearer server stores no credentials: %v", err)
+	}
+}
+
+func TestSecretKeyFormat(t *testing.T) {
+	for name, key := range map[string]string{
+		"too short": strings.Repeat("ab", 8),
+		"not hex":   strings.Repeat("zz", 32),
+		"too long":  strings.Repeat("ab", 64),
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Default()
+			cfg.Webhook.Token = "x"
+			cfg.Store.SecretKey = key
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), "secret_key") {
+				t.Errorf("want a format error, got %v", err)
+			}
+		})
+	}
+
+	cfg := Default()
+	cfg.Webhook.Token = "x"
+	cfg.Store.SecretKey = strings.ToUpper(strings.Repeat("ab", 32))
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("uppercase hex should be accepted: %v", err)
+	}
+}
+
+func TestSecretKeyEnvOverride(t *testing.T) {
+	key := strings.Repeat("cd", 32)
+	t.Setenv("RIVERBED_SECRET_KEY", key)
+	cfg, err := Load(write(t, minimal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Store.SecretKey != key {
+		t.Errorf("secret key = %q", cfg.Store.SecretKey)
+	}
+}
+
+func TestScaffoldGeneratesASecretKey(t *testing.T) {
+	s := Scaffold{}
+	secrets, err := s.Secrets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, ok := secrets[SecretKeyEnv]
+	if !ok {
+		t.Fatal("a generated configuration should come with a key")
+	}
+	if !isHexKey(key) {
+		t.Errorf("generated key = %q, which is not usable", key)
+	}
+
+	rendered, err := s.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered, "secret_key = \"${"+SecretKeyEnv+"}\"") {
+		t.Errorf("the configuration should refer to the key:\n%s", rendered)
+	}
+	if strings.Contains(rendered, key) {
+		t.Error("the key itself must not be written into the configuration")
 	}
 }

@@ -37,6 +37,7 @@ Commands:
   auth       Authorize an MCP server that uses OAuth
   backfill   Embed recordings stored before embedding was enabled
   migrate    Create or migrate the database, then exit
+  key        Print a new secret key for encrypting stored credentials
   version    Print the version
 
 Run "riverbed <command> -h" for the flags of a command.
@@ -73,6 +74,8 @@ func run() error {
 		return backfill(args)
 	case "migrate":
 		return migrate(args)
+	case "key":
+		return printKey(args)
 	case "version":
 		fmt.Println("riverbed", version)
 		return nil
@@ -451,6 +454,25 @@ func migrate(args []string) error {
 	defer app.Close()
 
 	fmt.Printf("Database %s is ready.\n", cfg.Store.Path)
+	return nil
+}
+
+// printKey writes a new secret key, for putting in the environment as
+// RIVERBED_SECRET_KEY.
+func printKey(args []string) error {
+	fs := flag.NewFlagSet("key", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: riverbed key")
+		fmt.Fprintln(os.Stderr, "\nPrints a new secret key for store.secret_key.")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	key, err := config.SecretKey()
+	if err != nil {
+		return err
+	}
+	fmt.Println(key)
 	return nil
 }
 

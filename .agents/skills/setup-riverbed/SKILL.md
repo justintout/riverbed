@@ -20,13 +20,17 @@ user the settings to enter on the device.
 1. **Never write a secret into `riverbed.toml`.** Configuration values refer to the
    environment as `${VAR}`. `init` writes generated tokens to `riverbed.env` with
    mode 0600 and adds it to `.gitignore`. Keep API keys in the environment too.
-2. **Do not hand-write the configuration.** Use `riverbed init` flags. If the user
+2. **An OAuth MCP server needs `store.secret_key`.** It encrypts the tokens in the
+   database. `riverbed init` generates one into `riverbed.env`; `riverbed key` prints
+   another. Riverbed refuses to start without it, and losing it means re-running
+   `riverbed auth`.
+3. **Do not hand-write the configuration.** Use `riverbed init` flags. If the user
    needs an option `init` does not cover, run `init` first, then edit the file and
    confirm with `riverbed migrate -config <file>`, which fails if the result is
    invalid.
-3. **Do not invent configuration keys.** `riverbed.example.toml` in the repository
+4. **Do not invent configuration keys.** `riverbed.example.toml` in the repository
    root is the complete reference. Read it before you edit anything.
-4. **Stop and ask** if a step fails twice. Do not try other commands in the hope
+5. **Stop and ask** if a step fails twice. Do not try other commands in the hope
    that one works.
 
 ## Step 1: Ask the user
