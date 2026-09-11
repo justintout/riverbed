@@ -1,9 +1,8 @@
 // Package route decides what should happen to a transcription.
 //
-// Deciding is needed because the device's webhook does not say which button
-// combination produced a recording: the payload carries the transcription, a
-// timestamp and the client name, nothing more. So the text itself has to say
-// whether it is a thought to file or a request to act on.
+// Deciding is needed because the webhook carries only the transcription, a
+// timestamp and the client name. The text itself therefore has to say whether it
+// is a thought to file or a request to act on.
 //
 // Two mechanisms are offered, and both are optional. Ordered rules match a
 // spoken prefix or a regular expression, which is deterministic and costs

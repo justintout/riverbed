@@ -139,8 +139,8 @@ agents = ["claude"]
 # Routing
 # ---------------------------------------------------------------------------
 #
-# The device's webhook does not say which button produced a recording, so the
-# text decides. Rules are tried in order; the first match wins. Anything
+# The webhook carries only the transcription, the timestamp and the client name,
+# so the text decides. Rules are tried in order; the first match wins. Anything
 # unmatched goes to the classifier when one is set, and otherwise to default.
 #
 # "journal" is reserved: it stores and embeds the note without calling anything.

@@ -18,9 +18,9 @@ require another service at run time. Text embedding runs in the same process.
   and `client`. A bearer token protects the endpoint.
 - Keeps recordings, audio, agent replies, tool calls and tags in one SQLite
   database. The database is a single file, which makes backup simple.
-- Selects a route for each transcription with a spoken prefix, a regular
-  expression, or a small local model. The webhook payload does not identify the
-  button that started the recording, so the text must decide.
+- Receives everything the Index sends, and selects a route for each
+  transcription with a spoken prefix, a regular expression, or a small local
+  model.
 - Runs agents with tools from your MCP servers. Supported agents are Claude,
   Gemini, any OpenAI-compatible endpoint such as DeepSeek, llama.cpp, LM Studio or
   Ollama, and your own agent over HTTP.
@@ -82,11 +82,11 @@ All commands accept `-config`, `-log-level` and `-log-format`.
 
 ## Routing
 
-The webhook payload does not identify the button that started the recording.
-Riverbed therefore selects a route from the text. It applies the rules in order and
-uses the first rule that matches. If no rule matches, it asks the classifier, if you
-configured one. If the classifier gives no usable answer, Riverbed uses
-`router.default`.
+Riverbed receives everything the Index sends, and the payload carries only the
+transcription, the timestamp and the client name. The text is therefore the only
+thing available to route on. Riverbed applies the rules in order and uses the first
+rule that matches. If no rule matches, it asks the classifier, if you configured
+one. If the classifier gives no usable answer, Riverbed uses `router.default`.
 
 ```toml
 [router]
