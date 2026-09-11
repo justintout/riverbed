@@ -18,9 +18,10 @@ require another service at run time.
   and `client`. A bearer token protects the endpoint.
 - Keeps recordings, audio, agent replies, tool calls and tags in one SQLite
   database. The database is a single file, which makes backup simple.
-- Receives everything the Index sends, and selects a route for each
-  transcription with a spoken prefix, a regular expression, or a small local
-  model.
+- Receives everything the Index sends, and selects a route for each transcription
+  with a spoken prefix, a regular expression, or by meaning. Matching by meaning
+  compares the note to example phrases you supply, so it needs no model call. A
+  small local model can resolve whatever is left.
 - Runs agents with tools from your MCP servers. Supported agents are Claude,
   Gemini, any OpenAI-compatible endpoint such as DeepSeek, llama.cpp, LM Studio or
   Ollama, and your own agent over HTTP.
@@ -53,9 +54,18 @@ requests, whether to enable search by meaning, and whether to connect Home
 Assistant. It then runs `riverbed init`, verifies the result with a test recording,
 and tells you the settings to enter on the device.
 
-The skill is at `.agents/skills/setup-riverbed/`, in the
+Two skills ship with the repository, both in the
 [Agent Skills](https://agentskills.io) format, so any client that reads skills can
-use it. `.claude/skills/setup-riverbed` is a symlink to it for Claude Code.
+use them:
+
+| Skill | Ask for |
+| --- | --- |
+| `setup-riverbed` | Installing and configuring Riverbed, and adding an agent or an MCP server later |
+| `riverbed-routing` | Adding routing rules, matching notes by meaning, and choosing a similarity threshold |
+
+They live in `.agents/skills/`, which is the cross-client location.
+`.claude/skills/` holds a symlink to each one, because Claude Code reads only its
+own directory.
 
 ### By hand
 
@@ -209,6 +219,9 @@ against a calendar rule and fell through to the journal; adding the example
 
 An exact prefix or regular expression match always wins over a semantic match, even
 when the semantic rule also clears its threshold, so a wake word stays reliable.
+
+For help writing utterances and calibrating a threshold, ask your agent to use the
+`riverbed-routing` skill.
 
 ## Embedding and retrieval
 
