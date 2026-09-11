@@ -6,10 +6,10 @@ Riverbed receives the recordings that a Pebble Index 01 sends to a webhook. It
 stores each recording and its transcription in a SQLite database, decides which
 transcriptions need an agent, and sends those to the agent you configure. The agent
 can use tools from your own MCP servers. You can search the stored transcriptions by
-keyword, by meaning, or by both.
+keyword, and by meaning if you configure an embedding model.
 
 Riverbed builds to a single static binary. It does not use CGo, and it does not
-require another service at run time. Text embedding runs in the same process.
+require another service at run time.
 
 ## Features
 
@@ -26,8 +26,9 @@ require another service at run time. Text embedding runs in the same process.
   Ollama, and your own agent over HTTP.
 - Authenticates to MCP servers with a static token or with OAuth. The device
   supports static tokens only.
-- Searches transcriptions with keywords (FTS5), with vectors, or with both
-  rankings combined. You can filter by time, route, tag, or whether a tool ran.
+- Searches transcriptions with keywords (FTS5). If you configure an embedding
+  model, it also searches by meaning, and combines the two rankings. You can filter
+  by time, route, tag, or whether a tool ran.
 - Serves its own stored transcriptions as an MCP server, so the device or another
   agent can search them.
 
@@ -116,9 +117,14 @@ keeps the recording.
 Retrieval uses keywords only until you configure an embedding model. A configured
 model also enables vector storage and hybrid search.
 
+The `potion` and `goformer` embedders run inside the Riverbed process. There is
+therefore no embedding service to install and keep running next to Riverbed, no API
+key to hold, and the transcriptions stay on the host. Use `remote` if you would
+rather call a model you already run elsewhere.
+
 | `kind` | Location | Description |
 | --- | --- | --- |
-| `potion` | In process | Static embeddings. Less than one millisecond for each note. Models are 8 MB to 131 MB. This is the default. |
+| `potion` | In process | Static embeddings. Less than one millisecond for each note. Models are 8 MB to 131 MB. This is the default `kind`. |
 | `goformer` | In process | BERT embeddings from a HuggingFace safetensors directory. Slower, and better on longer text. |
 | `remote` | HTTP | Any OpenAI-compatible `/v1/embeddings` endpoint. |
 
@@ -127,6 +133,10 @@ model also enables vector storage and hybrid search.
 kind = "potion"
 model = "potion-base-8M"
 ```
+
+The `potion` embedder downloads its model from HuggingFace at first use and caches
+it, so the first start needs network access. Set `GO_POTION_HOME` to keep the cache
+on a persistent volume. For `goformer`, you supply the model directory yourself.
 
 Keyword search uses FTS5 with `bm25` ranking. Vector search uses
 [go-sqlite-vector](https://github.com/justintout/go-sqlite-vector). If a query has
@@ -140,8 +150,6 @@ first use them. If you then configure a different model, Riverbed stops with an
 error, because the stored vectors are no longer comparable. To embed recordings that
 you stored before you enabled embedding, run `riverbed backfill`.
 
-The `potion` embedder downloads its model at first use and caches it. Set
-`GO_POTION_HOME` to keep the cache on a persistent volume.
 
 ## MCP servers
 
