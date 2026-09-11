@@ -174,3 +174,25 @@ tags = ["reminder"]
 regex = "^(turn|switch|set|dim|open|close|lock|unlock) "
 agent = "claude"
 tags = ["home"]
+
+# A rule can match by meaning instead, which needs no model call. List examples of
+# what the route handles; any transcription close enough to one of them takes it.
+# This requires an embedding model, since the comparison is between embeddings.
+#
+# The threshold depends on the model, so measure it:
+#   riverbed route -config riverbed.toml "kill the lights in the kitchen"
+# prints the score of every semantic rule. With potion-base-8M, phrasings that
+# should match score about 0.58 to 0.79 and unrelated notes 0.03 to 0.20.
+#
+# When something you expect to match falls short, add an utterance covering that
+# phrasing rather than lowering the threshold.
+# [[router.rule]]
+# utterances = [
+#   "turn on the kitchen lights",
+#   "dim the lamp in the bedroom",
+#   "switch off the porch light",
+#   "close the blinds",
+# ]
+# agent = "claude"
+# tags = ["home"]
+# threshold = 0.5                        # optional, overrides semantic_threshold

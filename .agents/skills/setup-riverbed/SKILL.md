@@ -182,7 +182,8 @@ Do not re-run `init` on a configured system; it would replace the configuration 
 the tokens. Edit `riverbed.toml` instead, using `riverbed.example.toml` as the
 reference, then run `riverbed migrate -config riverbed.toml` to confirm it loads.
 
-- Another agent: add an `[[agent]]` block, then a `[[router.rule]]` that routes to it.
+- Another agent: add an `[[agent]]` block, then a `[[router.rule]]` that routes to
+  it. Use the `riverbed-routing` skill for the rule itself.
 - An MCP server needing OAuth: add the server with `auth = "oauth"` and
   `transport = "streamable"`, set `server.base_url`, then run
   `riverbed auth <server-name>`, which prints a URL the user must open.
@@ -193,3 +194,5 @@ reference, then run `riverbed migrate -config riverbed.toml` to confirm it loads
 
 - [references/DEPLOY.md](references/DEPLOY.md): systemd, Docker, Podman, reverse proxies.
 - [references/TROUBLESHOOTING.md](references/TROUBLESHOOTING.md): what each failure means.
+- The `riverbed-routing` skill: adding routing rules, including rules that match a
+  note by meaning, and choosing a similarity threshold by measuring it.

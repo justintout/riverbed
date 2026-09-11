@@ -84,6 +84,13 @@ type MCPServe struct {
 	Token   string `toml:"token"`
 }
 
+// DefaultSemanticThreshold is the cosine similarity a semantic rule requires
+// when neither the rule nor the router sets one.
+//
+// The usable range depends on the embedding model, so this is a starting point
+// rather than a good value for every model. Measure it with "riverbed route".
+const DefaultSemanticThreshold = 0.5
+
 // Router decides which agent, if any, handles a transcription.
 type Router struct {
 	// Default is the agent used when no rule matches and no classifier is
@@ -93,17 +100,53 @@ type Router struct {
 	// Classifier names an agent used to choose a route when no rule matches.
 	// Empty disables classification.
 	Classifier string `toml:"classifier"`
-	Rules      []Rule `toml:"rule"`
+	// SemanticThreshold is the similarity semantic rules require when they set
+	// none of their own. Zero means DefaultSemanticThreshold.
+	SemanticThreshold float64 `toml:"semantic_threshold"`
+	Rules             []Rule  `toml:"rule"`
 }
 
-// Rule matches a transcription by spoken prefix or regular expression.
-type Rule struct {
-	Prefix string   `toml:"prefix"`
-	Regex  string   `toml:"regex"`
-	Agent  string   `toml:"agent"`
-	Strip  bool     `toml:"strip"`
-	Tags   []string `toml:"tags"`
+// Semantic reports whether any rule matches by meaning, which requires an
+// embedder.
+func (r Router) Semantic() bool {
+	for _, rule := range r.Rules {
+		if rule.Semantic() {
+			return true
+		}
+	}
+	return false
 }
+
+// Threshold returns the similarity the rule requires.
+func (r Router) Threshold(rule Rule) float64 {
+	switch {
+	case rule.Threshold > 0:
+		return rule.Threshold
+	case r.SemanticThreshold > 0:
+		return r.SemanticThreshold
+	default:
+		return DefaultSemanticThreshold
+	}
+}
+
+// Rule matches a transcription by spoken prefix, by regular expression, or by
+// meaning.
+//
+// A rule sets exactly one matcher. Utterances are examples of what the route
+// handles; a transcription matches when its embedding is at least Threshold
+// similar to one of them, which needs no model call.
+type Rule struct {
+	Prefix     string   `toml:"prefix"`
+	Regex      string   `toml:"regex"`
+	Utterances []string `toml:"utterances"`
+	Threshold  float64  `toml:"threshold"`
+	Agent      string   `toml:"agent"`
+	Strip      bool     `toml:"strip"`
+	Tags       []string `toml:"tags"`
+}
+
+// Semantic reports whether the rule matches by meaning.
+func (r Rule) Semantic() bool { return len(r.Utterances) > 0 }
 
 // JournalAgent is the reserved agent name meaning "store only, call nothing".
 const JournalAgent = "journal"
@@ -473,12 +516,25 @@ func (c *Config) Validate() error {
 	if c.Router.Classifier != "" && !agents[c.Router.Classifier] {
 		add("router.classifier %q is not a configured agent", c.Router.Classifier)
 	}
+	if c.Router.SemanticThreshold < 0 || c.Router.SemanticThreshold > 1 {
+		add("router.semantic_threshold must be between 0 and 1, not %v", c.Router.SemanticThreshold)
+	}
+	if c.Router.Semantic() && !c.Embedding.Enabled() {
+		add("router rules match by meaning, so an embedding model is required")
+	}
 	for i, r := range c.Router.Rules {
-		switch {
-		case r.Prefix == "" && r.Regex == "":
-			add("router.rule[%d] needs a prefix or a regex", i)
-		case r.Prefix != "" && r.Regex != "":
-			add("router.rule[%d] cannot set both prefix and regex", i)
+		matchers := 0
+		for _, set := range []bool{r.Prefix != "", r.Regex != "", r.Semantic()} {
+			if set {
+				matchers++
+			}
+		}
+		switch matchers {
+		case 1:
+		case 0:
+			add("router.rule[%d] needs a prefix, a regex or utterances", i)
+		default:
+			add("router.rule[%d] sets more than one matcher; use one per rule", i)
 		}
 		if r.Regex != "" {
 			if _, err := regexp.Compile(r.Regex); err != nil {
@@ -486,6 +542,19 @@ func (c *Config) Validate() error {
 			}
 			if r.Strip {
 				add("router.rule[%d] cannot strip a regex match; use a prefix", i)
+			}
+		}
+		if r.Semantic() {
+			if r.Strip {
+				add("router.rule[%d] cannot strip a semantic match; use a prefix", i)
+			}
+			if r.Threshold < 0 || r.Threshold > 1 {
+				add("router.rule[%d].threshold must be between 0 and 1, not %v", i, r.Threshold)
+			}
+			for j, utterance := range r.Utterances {
+				if strings.TrimSpace(utterance) == "" {
+					add("router.rule[%d].utterances[%d] is empty", i, j)
+				}
 			}
 		}
 		if r.Agent == "" {

@@ -30,7 +30,7 @@ func (f *fakeAgent) Run(_ context.Context, req agent.Request) (*agent.Response, 
 
 func router(t *testing.T, cfg config.Router, classifier agent.Agent, targets []string) *Router {
 	t.Helper()
-	r, err := New(Options{Config: cfg, Classifier: classifier, Targets: targets})
+	r, err := New(t.Context(), Options{Config: cfg, Classifier: classifier, Targets: targets})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,13 +252,13 @@ func TestUnusableClassifierAnswerFallsBackToDefault(t *testing.T) {
 }
 
 func TestNewRejectsBadRules(t *testing.T) {
-	if _, err := New(Options{Config: config.Router{Rules: []config.Rule{{Regex: "(["}}}}); err == nil {
+	if _, err := New(t.Context(), Options{Config: config.Router{Rules: []config.Rule{{Regex: "(["}}}}); err == nil {
 		t.Error("want an error for a bad regex")
 	}
-	if _, err := New(Options{Config: config.Router{Rules: []config.Rule{{}}}}); err == nil {
+	if _, err := New(t.Context(), Options{Config: config.Router{Rules: []config.Rule{{}}}}); err == nil {
 		t.Error("want an error for a rule with no matcher")
 	}
-	if _, err := New(Options{Config: config.Router{Rules: []config.Rule{{Prefix: "..."}}}}); err == nil {
+	if _, err := New(t.Context(), Options{Config: config.Router{Rules: []config.Rule{{Prefix: "..."}}}}); err == nil {
 		t.Error("want an error for a prefix of only punctuation")
 	}
 }

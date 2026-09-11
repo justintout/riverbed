@@ -127,11 +127,15 @@ func TestRuleValidation(t *testing.T) {
 		rule Rule
 		want string
 	}{
-		"no matcher":    {Rule{Agent: JournalAgent}, "prefix or a regex"},
-		"both matchers": {Rule{Prefix: "a", Regex: "b", Agent: JournalAgent}, "both"},
-		"bad regex":     {Rule{Regex: "([", Agent: JournalAgent}, "regex"},
-		"strip a regex": {Rule{Regex: "^a", Strip: true, Agent: JournalAgent}, "strip"},
-		"unknown agent": {Rule{Prefix: "a", Agent: "ghost"}, "not a configured agent"},
+		"no matcher":             {Rule{Agent: JournalAgent}, "needs a prefix, a regex or utterances"},
+		"both matchers":          {Rule{Prefix: "a", Regex: "b", Agent: JournalAgent}, "more than one matcher"},
+		"prefix and utterances":  {Rule{Prefix: "a", Utterances: []string{"x"}, Agent: JournalAgent}, "more than one matcher"},
+		"strip a semantic match": {Rule{Utterances: []string{"x"}, Strip: true, Agent: JournalAgent}, "strip"},
+		"threshold out of range": {Rule{Utterances: []string{"x"}, Threshold: 1.5, Agent: JournalAgent}, "between 0 and 1"},
+		"empty utterance":        {Rule{Utterances: []string{"x", "  "}, Agent: JournalAgent}, "is empty"},
+		"bad regex":              {Rule{Regex: "([", Agent: JournalAgent}, "regex"},
+		"strip a regex":          {Rule{Regex: "^a", Strip: true, Agent: JournalAgent}, "strip"},
+		"unknown agent":          {Rule{Prefix: "a", Agent: "ghost"}, "not a configured agent"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cfg := base()
@@ -278,5 +282,87 @@ func TestExampleConfigIsValid(t *testing.T) {
 	}
 	if _, err := Load("../riverbed.example.toml"); err != nil {
 		t.Errorf("the shipped example must load: %v", err)
+	}
+}
+
+func TestSemanticRulesRequireAnEmbedder(t *testing.T) {
+	cfg := Default()
+	cfg.Webhook.Token = "x"
+	cfg.Router.Rules = []Rule{{Utterances: []string{"turn on the lights"}, Agent: JournalAgent}}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "embedding model is required") {
+		t.Errorf("want an embedder error, got %v", err)
+	}
+
+	cfg.Embedding.Model = "potion-base-8M"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("with a model configured it should be valid: %v", err)
+	}
+}
+
+func TestRouterThreshold(t *testing.T) {
+	r := Router{}
+	if got := r.Threshold(Rule{}); got != DefaultSemanticThreshold {
+		t.Errorf("threshold = %v, want the default", got)
+	}
+
+	r.SemanticThreshold = 0.6
+	if got := r.Threshold(Rule{}); got != 0.6 {
+		t.Errorf("threshold = %v, want the router value", got)
+	}
+	if got := r.Threshold(Rule{Threshold: 0.8}); got != 0.8 {
+		t.Errorf("threshold = %v, want the rule to win", got)
+	}
+}
+
+func TestRouterSemantic(t *testing.T) {
+	if (Router{Rules: []Rule{{Prefix: "note"}}}).Semantic() {
+		t.Error("a prefix rule is not semantic")
+	}
+	if !(Router{Rules: []Rule{{Prefix: "note"}, {Utterances: []string{"x"}}}}).Semantic() {
+		t.Error("one semantic rule makes the router semantic")
+	}
+}
+
+func TestSemanticThresholdRange(t *testing.T) {
+	cfg := Default()
+	cfg.Webhook.Token = "x"
+	cfg.Router.SemanticThreshold = 2
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "between 0 and 1") {
+		t.Errorf("want a range error, got %v", err)
+	}
+}
+
+func TestSemanticRuleLoadsFromTOML(t *testing.T) {
+	cfg, err := Load(write(t, `
+[webhook]
+token = "t"
+[store]
+path = "test.db"
+[embedding]
+kind = "potion"
+model = "potion-base-8M"
+[router]
+default = "journal"
+semantic_threshold = 0.42
+[[router.rule]]
+utterances = ["turn on the kitchen lights", "dim the lamp"]
+threshold = 0.55
+agent = "journal"
+tags = ["home"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Router.SemanticThreshold != 0.42 {
+		t.Errorf("router threshold = %v", cfg.Router.SemanticThreshold)
+	}
+	rule := cfg.Router.Rules[0]
+	if !rule.Semantic() || len(rule.Utterances) != 2 {
+		t.Errorf("rule = %+v", rule)
+	}
+	if got := cfg.Router.Threshold(rule); got != 0.55 {
+		t.Errorf("effective threshold = %v, want the rule value", got)
 	}
 }

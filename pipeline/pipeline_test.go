@@ -86,7 +86,7 @@ func openStore(t *testing.T, dim int) *store.Store {
 
 func newRouter(t *testing.T, cfg config.Router) *route.Router {
 	t.Helper()
-	r, err := route.New(route.Options{Config: cfg})
+	r, err := route.New(t.Context(), route.Options{Config: cfg})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -48,7 +48,7 @@ temporary directories, so they need no setup and no network, apart from
 | `store/` | SQLite. Schema in `migrations/`, embedded with `go:embed`. |
 | `webhook/` | The device receiver, an `http.Handler`. |
 | `embedding/` | The `Embedder` interface and its three implementations. |
-| `route/` | Prefix, regular expression and classifier routing. |
+| `route/` | Prefix, regular expression, semantic and classifier routing. |
 | `agent/` | The `Agent` interface and the four providers, one file each. |
 | `tool/` | MCP client registry and OAuth. |
 | `mcpserve/` | Riverbed's own MCP server. |
@@ -99,6 +99,12 @@ supports a base URL override.
   `bm25` scores to vector distances; the two use unrelated scales.
 - Text reaching FTS5 goes through `store.ftsQuery`, because spoken punctuation and
   words such as `OR` are FTS5 syntax and would otherwise be a query error.
+- Routing tries exact matchers before semantic ones, rather than walking rules in
+  configuration order throughout. An exact wake word has to beat a fuzzy match.
+- `route.New` embeds every semantic rule's utterances, so it takes a context and
+  does I/O. Routing a recording then embeds only the transcription.
+- Semantic thresholds are model dependent. Do not hard-code one in a test fixture
+  and assume it transfers; `route` tests use a deterministic fake embedder.
 
 ## Git
 

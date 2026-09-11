@@ -33,6 +33,7 @@ Commands:
   init       Write a configuration file, secrets and the database
   serve      Receive recordings and process them
   search     Search the recorded notes
+  route      Show how a transcription would be routed, without storing it
   auth       Authorize an MCP server that uses OAuth
   backfill   Embed recordings stored before embedding was enabled
   migrate    Create or migrate the database, then exit
@@ -64,6 +65,8 @@ func run() error {
 		return serve(args)
 	case "search":
 		return search(args)
+	case "route":
+		return routeCmd(args)
 	case "auth":
 		return authorize(args)
 	case "backfill":

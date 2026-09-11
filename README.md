@@ -102,6 +102,7 @@ curl -X POST http://localhost:8080/webhook/recording \
 | `riverbed init` | Write a configuration file, generate the tokens, and create the database |
 | `riverbed serve` | Receive recordings and process them |
 | `riverbed search [query...]` | Search transcriptions. Flags: `-since`, `-tag`, `-route`, `-tool-used`, `-limit` |
+| `riverbed route <text>` | Show how a transcription would be routed, with every semantic score. Stores nothing |
 | `riverbed auth <mcp-server>` | Do the OAuth flow for one MCP server and store the token |
 | `riverbed backfill` | Embed recordings that were stored before you enabled embedding |
 | `riverbed migrate` | Create or migrate the database, then stop |
@@ -113,9 +114,19 @@ All commands accept `-config`, `-log-level` and `-log-format`.
 
 Riverbed receives everything the Index sends, and the payload carries only the
 transcription, the timestamp and the client name. The text is therefore the only
-thing available to route on. Riverbed applies the rules in order and uses the first
-rule that matches. If no rule matches, it asks the classifier, if you configured
-one. If the classifier gives no usable answer, Riverbed uses `router.default`.
+thing available to route on.
+
+Three mechanisms are available, and Riverbed tries them in increasing order of cost:
+
+1. **Prefix and regular expression rules**, in configuration order. These are exact
+   and free, so they are tried first and the first match wins.
+2. **Semantic rules**, which carry example utterances. Riverbed embeds the
+   transcription once and compares it to every example by cosine similarity. The
+   highest scoring rule wins if it reaches its threshold. This needs no model call.
+3. **A classifier agent**, if you configure one, for whatever the rules did not
+   match.
+
+If none of them decides, `router.default` applies.
 
 ```toml
 [router]
@@ -139,6 +150,65 @@ punctuation therefore have no effect, and the prefix `note` does not match the w
 `nothing`. The route name `journal` is reserved. It stores and embeds the recording
 and calls no agent. If the classifier fails, Riverbed uses the default route and
 keeps the recording.
+
+### Routing by meaning
+
+A semantic rule lists examples of what its route handles. Any transcription close
+enough to one of them takes that route, so you do not have to predict the exact
+words you will say, and no model is called.
+
+```toml
+[router]
+default = "journal"
+semantic_threshold = 0.45      # the similarity a rule needs, unless it sets its own
+
+[[router.rule]]
+utterances = [
+  "turn on the kitchen lights",
+  "dim the lamp in the bedroom",
+  "switch off the porch light",
+  "close the blinds",
+]
+agent = "home"
+tags = ["home"]
+threshold = 0.5                # optional, overrides semantic_threshold
+```
+
+Semantic rules require an embedding model, because the comparison is between
+embeddings. Riverbed embeds the utterances once at startup, so routing a recording
+costs one embedding of the transcription, which is well under a millisecond with
+`potion`.
+
+**The right threshold depends on the model**, so measure it rather than guess.
+`riverbed route` reports the decision and the score of every semantic rule without
+storing anything:
+
+```
+$ riverbed route -config riverbed.toml "kill the lights in the kitchen please"
+"kill the lights in the kitchen please"
+  route:  home
+  reason: rule 1 semantic 0.717 "turn on the kitchen lights"
+  tags:   home
+  semantic scores:
+    * home         0.717  (threshold 0.45, closest "turn on the kitchen lights")
+      assistant    0.033  (threshold 0.45, closest "what is on my calendar today")
+```
+
+Pass `-` to read lines from standard input, which is the quickest way to check a
+batch of real phrasings at once.
+
+With `potion-base-8M`, phrasings that should match score around 0.58 to 0.79 and
+unrelated notes score between 0.03 and 0.20, so a threshold near 0.45 separates them.
+A contextual model such as `goformer` scores unrelated text higher, so its threshold
+has to be higher. Measure your own.
+
+When a phrasing you expect to match falls short, the usual fix is another utterance
+rather than a lower threshold. `"when am I meeting the contractor"` scored 0.407
+against a calendar rule and fell through to the journal; adding the example
+`"when am I meeting someone"` took the same phrase to 0.639.
+
+An exact prefix or regular expression match always wins over a semantic match, even
+when the semantic rule also clears its threshold, so a wake word stays reliable.
 
 ## Embedding and retrieval
 

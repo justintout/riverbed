@@ -4,10 +4,19 @@
 // timestamp and the client name. The text itself therefore has to say whether it
 // is a thought to file or a request to act on.
 //
-// Two mechanisms are offered, and both are optional. Ordered rules match a
-// spoken prefix or a regular expression, which is deterministic and costs
-// nothing. A classifier agent, typically a small local model, resolves whatever
-// the rules do not match. When neither decides, the default route applies.
+// Three mechanisms are offered, and all are optional. They are tried in
+// increasing order of cost.
+//
+// Prefix and regular expression rules are exact and free, so they are tried
+// first, in configuration order.
+//
+// Semantic rules carry example utterances. The transcription is embedded once
+// and compared to every example by cosine similarity, and the highest scoring
+// rule wins if it reaches its threshold. This needs no model call, so it costs
+// well under a millisecond with an in-process embedder.
+//
+// A classifier agent, typically a small local model, resolves what neither
+// matched. When nothing decides, the default route applies.
 package route
 
 import (
@@ -21,6 +30,7 @@ import (
 
 	"github.com/justintout/riverbed/agent"
 	"github.com/justintout/riverbed/config"
+	"github.com/justintout/riverbed/embedding"
 )
 
 // Decision is the outcome of routing.
@@ -34,6 +44,10 @@ type Decision struct {
 	Reason string
 	// Tags are attached to the recording.
 	Tags []string
+	// Score is the similarity of a semantic match, and zero otherwise.
+	Score float64
+	// Utterance is the example a semantic match scored against.
+	Utterance string
 }
 
 // Journaled reports whether the decision is to store without calling an agent.
@@ -45,8 +59,9 @@ type Router struct {
 	defaultTo  string
 	classifier agent.Agent
 	// targets are the agent names the classifier may choose from.
-	targets []string
-	log     *slog.Logger
+	targets  []string
+	embedder embedding.Embedder
+	log      *slog.Logger
 }
 
 type compiledRule struct {
@@ -55,6 +70,9 @@ type compiledRule struct {
 	// prefix is the normalized spoken prefix.
 	prefix string
 	regex  *regexp.Regexp
+	// utterances are the rule's examples with their embeddings.
+	utterances []utterance
+	threshold  float64
 }
 
 // Options configures a Router.
@@ -64,11 +82,14 @@ type Options struct {
 	Classifier agent.Agent
 	// Targets are the routable agent names offered to the classifier.
 	Targets []string
-	Logger  *slog.Logger
+	// Embedder is required when any rule carries utterances.
+	Embedder embedding.Embedder
+	Logger   *slog.Logger
 }
 
-// New compiles the router.
-func New(opts Options) (*Router, error) {
+// New compiles the router and embeds the utterances of every semantic rule, so
+// that routing a recording embeds only the transcription.
+func New(ctx context.Context, opts Options) (*Router, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
@@ -76,6 +97,7 @@ func New(opts Options) (*Router, error) {
 		defaultTo:  opts.Config.Default,
 		classifier: opts.Classifier,
 		targets:    opts.Targets,
+		embedder:   opts.Embedder,
 		log:        opts.Logger,
 	}
 	if r.defaultTo == "" {
@@ -96,10 +118,16 @@ func New(opts Options) (*Router, error) {
 				return nil, fmt.Errorf("route: rule %d regex: %w", i, err)
 			}
 			compiled.regex = re
+		case len(rule.Utterances) > 0:
+			compiled.threshold = opts.Config.Threshold(rule)
 		default:
-			return nil, fmt.Errorf("route: rule %d has neither a prefix nor a regex", i)
+			return nil, fmt.Errorf("route: rule %d has no prefix, regex or utterances", i)
 		}
 		r.rules = append(r.rules, compiled)
+	}
+
+	if err := r.embedUtterances(ctx); err != nil {
+		return nil, err
 	}
 	return r, nil
 }
@@ -109,6 +137,7 @@ func (r *Router) Route(ctx context.Context, transcription string) Decision {
 	text := strings.TrimSpace(transcription)
 	normalized := Normalize(text)
 
+	// Exact matchers first: they cost nothing and leave no doubt.
 	for _, rule := range r.rules {
 		if rule.prefix != "" {
 			if !matchPrefix(normalized, rule.prefix) {
@@ -140,6 +169,22 @@ func (r *Router) Route(ctx context.Context, transcription string) Decision {
 		}
 	}
 
+	// Then meaning, which needs one embedding and no model call.
+	if matches, err := r.semanticScores(ctx, text); err != nil {
+		// A failed embedding must not lose the recording, so routing carries on
+		// to the classifier and the default.
+		r.log.Error("semantic routing failed", "error", err)
+	} else if best, ok := bestSemantic(matches); ok {
+		return Decision{
+			Agent:     best.Agent,
+			Prompt:    text,
+			Reason:    fmt.Sprintf("rule %d semantic %.3f %q", best.Index, best.Score, best.Utterance),
+			Tags:      r.rules[r.ruleAt(best.Index)].cfg.Tags,
+			Score:     best.Score,
+			Utterance: best.Utterance,
+		}
+	}
+
 	if r.classifier != nil && len(r.targets) > 0 {
 		if chosen, ok := r.classify(ctx, text); ok {
 			return Decision{
@@ -152,6 +197,29 @@ func (r *Router) Route(ctx context.Context, transcription string) Decision {
 
 	return Decision{Agent: r.defaultTo, Prompt: text, Reason: "default"}
 }
+
+// ruleAt returns the position of the rule with the given configuration index.
+func (r *Router) ruleAt(index int) int {
+	for i, rule := range r.rules {
+		if rule.index == index {
+			return i
+		}
+	}
+	return 0
+}
+
+// Explain reports the decision for a transcription along with the score of every
+// semantic rule, so thresholds can be chosen from measurements.
+func (r *Router) Explain(ctx context.Context, transcription string) (Decision, []semanticMatch, error) {
+	matches, err := r.semanticScores(ctx, strings.TrimSpace(transcription))
+	if err != nil {
+		return Decision{}, nil, err
+	}
+	return r.Route(ctx, transcription), matches, nil
+}
+
+// Scores describes one semantic rule's score against a transcription.
+type Scores = semanticMatch
 
 // classify asks the classifier agent to pick a route. A failure is logged and
 // ignored: routing then falls through to the default, which is always safe

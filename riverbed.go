@@ -30,6 +30,7 @@ type App struct {
 	OAuth  *tool.OAuth
 
 	pipeline *pipeline.Pipeline
+	router   *route.Router
 	mux      *http.ServeMux
 	log      *slog.Logger
 }
@@ -137,20 +138,22 @@ func (a *App) build(ctx context.Context, opts OpenOptions) error {
 	if cfg.Router.Classifier != "" {
 		classifier = agents[cfg.Router.Classifier]
 	}
-	router, err := route.New(route.Options{
+	var embedder embedding.Embedder
+	if a.Model != nil {
+		embedder = a.Model
+	}
+
+	router, err := route.New(ctx, route.Options{
 		Config:     cfg.Router,
 		Classifier: classifier,
 		Targets:    pipeline.AgentNames(agents),
+		Embedder:   embedder,
 		Logger:     a.log,
 	})
 	if err != nil {
 		return err
 	}
-
-	var embedder embedding.Embedder
-	if a.Model != nil {
-		embedder = a.Model
-	}
+	a.router = router
 
 	a.pipeline, err = pipeline.New(pipeline.Options{
 		Store:    a.Store,
@@ -238,6 +241,10 @@ func (a *App) Handler() http.Handler { return a.mux }
 
 // Pipeline returns the processing pipeline.
 func (a *App) Pipeline() *pipeline.Pipeline { return a.pipeline }
+
+// Router returns the router, so a command can report a routing decision without
+// processing a recording.
+func (a *App) Router() *route.Router { return a.router }
 
 // Serve runs the HTTP server and the pipeline until ctx is cancelled, then shuts
 // the listener down gracefully.
