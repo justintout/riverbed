@@ -30,6 +30,7 @@ Usage:
   riverbed <command> [flags]
 
 Commands:
+  init       Write a configuration file, secrets and the database
   serve      Receive recordings and process them
   search     Search the recorded notes
   auth       Authorize an MCP server that uses OAuth
@@ -57,6 +58,8 @@ func run() error {
 
 	command, args := os.Args[1], os.Args[2:]
 	switch command {
+	case "init":
+		return initialize(args)
 	case "serve":
 		return serve(args)
 	case "search":

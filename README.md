@@ -38,18 +38,45 @@ Go 1.25 or later to build. No other dependency is needed at run time.
 
 ## Quick start
 
+### With a coding agent
+
+The repository ships a setup skill, so you can clone it and ask your agent to do the
+work:
+
+```sh
+git clone https://github.com/justintout/riverbed
+cd riverbed
+```
+
+Then tell the agent: **"set up Riverbed"**. It asks which agent should handle spoken
+requests, whether to enable search by meaning, and whether to connect Home
+Assistant. It then runs `riverbed init`, verifies the result with a test recording,
+and tells you the settings to enter on the device.
+
+The skill is at `.agents/skills/setup-riverbed/`, in the
+[Agent Skills](https://agentskills.io) format, so any client that reads skills can
+use it. `.claude/skills/setup-riverbed` is a symlink to it for Claude Code.
+
+### By hand
+
 ```sh
 git clone https://github.com/justintout/riverbed
 cd riverbed
 make build
 
-cp riverbed.example.toml riverbed.toml
-$EDITOR riverbed.toml
+./riverbed init -embed-model potion-base-8M
 
-export RIVERBED_WEBHOOK_TOKEN=$(openssl rand -hex 32)
-export RIVERBED_MCP_TOKEN=$(openssl rand -hex 32)
+set -a; . ./riverbed.env; set +a
 ./riverbed serve -config riverbed.toml
 ```
+
+`riverbed init` writes `riverbed.toml`, writes the generated tokens to
+`riverbed.env` with mode 0600, adds that file to `.gitignore`, and creates the
+database. Run it with `-print` first to see what it would write. Pass `-agent-kind`
+to configure an agent, and see `riverbed init -h` for the rest.
+
+To write the configuration yourself instead, copy `riverbed.example.toml` to
+`riverbed.toml` and edit it.
 
 Then configure the device. In the Index tab settings, set the webhook URL to
 `https://your-host/webhook/recording` and add the header
@@ -72,6 +99,7 @@ curl -X POST http://localhost:8080/webhook/recording \
 
 | Command | Function |
 | --- | --- |
+| `riverbed init` | Write a configuration file, generate the tokens, and create the database |
 | `riverbed serve` | Receive recordings and process them |
 | `riverbed search [query...]` | Search transcriptions. Flags: `-since`, `-tag`, `-route`, `-tool-used`, `-limit` |
 | `riverbed auth <mcp-server>` | Do the OAuth flow for one MCP server and store the token |
