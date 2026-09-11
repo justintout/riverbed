@@ -14,7 +14,9 @@ export CGO_ENABLED = 0
 all: check build ## Vet, test and build.
 
 help: ## Show help for each of the Makefile recipes.
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:[^#]*## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":[^#]*## "} \
+		{names[NR] = $$1; descs[NR] = $$2; if (length($$1) > width) width = length($$1)} \
+		END {for (i = 1; i <= NR; i++) printf "\033[36m%-" width "s\033[0m    %s\n", names[i], descs[i]}'
 
 build: ## Build ./riverbed for this platform.
 	go build $(GOFLAGS) -tags $(TAGS) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/riverbed
