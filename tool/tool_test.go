@@ -76,7 +76,7 @@ func TestToolsAndCall(t *testing.T) {
 	if len(tools) != 1 {
 		t.Fatalf("want 1 tool, got %d", len(tools))
 	}
-	if tools[0].Name != "home.turn_on" {
+	if tools[0].Name != "home__turn_on" {
 		t.Errorf("name = %q, want home.turn_on", tools[0].Name)
 	}
 	if tools[0].Server != "home" || tools[0].Bare != "turn_on" {
@@ -89,7 +89,7 @@ func TestToolsAndCall(t *testing.T) {
 		t.Error("the input schema must reach the model")
 	}
 
-	res, err := r.Call(t.Context(), "home.turn_on", map[string]any{"entity": "light.kitchen"})
+	res, err := r.Call(t.Context(), "home__turn_on", map[string]any{"entity": "light.kitchen"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestToolErrorIsReportedNotReturnedAsError(t *testing.T) {
 	}
 	defer r.Close()
 
-	res, err := r.Call(t.Context(), "home.turn_on", map[string]any{"entity": "light.broken"})
+	res, err := r.Call(t.Context(), "home__turn_on", map[string]any{"entity": "light.broken"})
 	if err != nil {
 		t.Fatalf("a tool-level error must not be a Go error: %v", err)
 	}
@@ -190,13 +190,13 @@ func TestCallRejectsBadNames(t *testing.T) {
 	if _, err := r.Call(t.Context(), "unqualified", nil); err == nil {
 		t.Error("want an error for an unqualified name")
 	}
-	if _, err := r.Call(t.Context(), "ghost.tool", nil); err == nil {
+	if _, err := r.Call(t.Context(), "ghost__tool", nil); err == nil {
 		t.Error("want an error for an unknown server")
 	}
 }
 
 func TestServerNameCannotContainTheSeparator(t *testing.T) {
-	_, err := New(Options{Servers: []config.MCP{{Name: "home.sub", URL: "http://x", Transport: "streamable"}}})
+	_, err := New(Options{Servers: []config.MCP{{Name: "home__sub", URL: "http://x", Transport: "streamable"}}})
 	if err == nil {
 		t.Error("want an error: the name would be ambiguous")
 	}

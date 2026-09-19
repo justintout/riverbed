@@ -1,7 +1,7 @@
 // Package tool connects to MCP servers and offers their tools to agents.
 //
 // Each configured server becomes a lazily connected session. Tools are exposed
-// under a qualified name, "server.tool", so two servers may offer the same tool
+// under a qualified name, "server__tool", so two servers may offer the same tool
 // name without colliding, and so a stored tool call says which server ran it.
 package tool
 
@@ -22,12 +22,13 @@ import (
 	"github.com/justintout/riverbed/config"
 )
 
-// NameSeparator joins a server name and a tool name.
-const NameSeparator = "."
+// NameSeparator joins a server name and a tool name. It uses only characters
+// that the Anthropic and OpenAI APIs accept in a tool name, [A-Za-z0-9_-].
+const NameSeparator = "__"
 
 // Tool is one callable tool offered by a server.
 type Tool struct {
-	// Name is the qualified name an agent calls, "server.tool".
+	// Name is the qualified name an agent calls, "server__tool".
 	Name string
 	// Server and Bare are the two halves of Name.
 	Server string

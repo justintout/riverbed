@@ -266,7 +266,7 @@ you stored before you enabled embedding, run `riverbed backfill`.
 ## MCP servers
 
 Riverbed offers the tools of each MCP server to the agents that you list. Tool names
-are qualified as `server.tool`, so two servers can offer a tool with the same name.
+are qualified as `server__tool`, so two servers can offer a tool with the same name.
 If a server is unavailable, Riverbed writes a log entry and continues with the
 remaining servers.
 
