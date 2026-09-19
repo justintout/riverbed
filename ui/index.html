@@ -30,7 +30,6 @@
 <body>
 <header>
   <h1><a href="#/">Riverbed</a></h1>
-  <a href="#/new">New note</a>
   <a href="#/status">Status</a>
   <a href="#/config">Config</a>
   <span class="spacer"></span>
@@ -143,7 +142,15 @@ async function list(params) {
     more.set("limit", limit + 20);
     results.append(h("p", {}, h("a", { href: "#/?" + more }, "Show more")));
   }
-  show(filters, results);
+  const area = h("textarea", { rows: 2, placeholder: "Add a note" });
+  const add = h("form", { onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      await api("notes", { method: "POST", body: { text: area.value } });
+      route();
+    } catch (err) { fail(err); }
+  } }, area, h("button", {}, "Add"));
+  show(add, filters, results);
 }
 
 function summary(n) {
@@ -230,20 +237,6 @@ async function act(promise) {
   try { await promise; route(); } catch (err) { fail(err); }
 }
 
-// New note.
-
-function newNote() {
-  const area = h("textarea", { rows: 6, autofocus: true });
-  show(h("h2", {}, "New note"), h("form", { onsubmit: async (e) => {
-    e.preventDefault();
-    try {
-      const created = await api("notes", { method: "POST", body: { text: area.value } });
-      location.hash = "#/note/" + created.id;
-    } catch (err) { fail(err); }
-  } }, area, h("button", {}, "Add")),
-  h("p", { class: "meta" }, "A typed note is routed and searchable like a spoken one."));
-}
-
 // Configuration.
 
 async function config() {
@@ -309,7 +302,6 @@ async function route() {
     const note = path.match(/^\/note\/(\d+)$/);
     if (note) await detail(note[1]);
     else if (path === "/status") showStatus();
-    else if (path === "/new") newNote();
     else if (path === "/config") await config();
     else await list(params);
   } catch (err) {

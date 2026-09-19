@@ -67,7 +67,7 @@ path = "/mcp"
 token = "${RIVERBED_MCP_TOKEN}"
 
 # A web interface at the server's root: browse, search, edit and replay notes,
-# add typed notes, and edit this file. Without a password anyone who can reach
+# add typed notes from the list, and edit this file. Without a password anyone who can reach
 # the listener can read and delete notes, and the config page stays off, so set
 # one unless the listener is private.
 [ui]

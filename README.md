@@ -371,7 +371,7 @@ From there you can:
 - replay a finished note, or retry a failed one;
 - add or remove tags, or delete the note.
 
-The New note page adds a note by typing it. A typed note has no audio, and it goes
+The note list has a box for adding a note by typing it. A typed note has no audio, and it goes
 through routing and embedding like a spoken one. Replaying runs the route and the
 agent again, so an agent that acts on the world may act twice. Earlier replies and
 tool calls stay on the note as history.
