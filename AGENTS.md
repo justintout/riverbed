@@ -48,6 +48,7 @@ temporary directories, so they need no setup and no network, apart from
 | `agent/` | The `Agent` interface and the four providers, one file each. |
 | `tool/` | MCP client registry and OAuth. |
 | `mcpserve/` | Riverbed's own MCP server. |
+| `ui/` | The web interface: a JSON API and one embedded page. |
 | `pipeline/` | The worker that claims, routes, embeds and runs. |
 
 ## Conventions

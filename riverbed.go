@@ -18,6 +18,7 @@ import (
 	"github.com/justintout/riverbed/route"
 	"github.com/justintout/riverbed/store"
 	"github.com/justintout/riverbed/tool"
+	"github.com/justintout/riverbed/ui"
 	"github.com/justintout/riverbed/webhook"
 )
 
@@ -240,6 +241,26 @@ func (a *App) routes(opts OpenOptions, embedder embedding.Embedder) error {
 		mux.Handle(cfg.MCPServe.Path, server)
 		mux.Handle(cfg.MCPServe.Path+"/", server)
 		a.log.Info("serving the journal over mcp", "path", cfg.MCPServe.Path)
+	}
+
+	if cfg.UI.Enabled {
+		web, err := ui.New(ui.Options{
+			Store:    a.Store,
+			Embedder: embedder,
+			Config:   cfg,
+			Version:  opts.Version,
+			Notify:   a.pipeline.Notify,
+			Logger:   a.log,
+		})
+		if err != nil {
+			return err
+		}
+		mux.Handle("GET /{$}", web)
+		mux.Handle("/api/", web)
+		if cfg.UI.Password == "" {
+			a.log.Warn("the web interface has no password, so anyone who can reach the listener can read and delete notes")
+		}
+		a.log.Info("serving the web interface", "addr", cfg.Server.Addr)
 	}
 
 	a.mux = mux

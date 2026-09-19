@@ -651,3 +651,35 @@ func TestClientAndTokenAreIndependent(t *testing.T) {
 		t.Errorf("the registration should survive: %v", err)
 	}
 }
+
+func TestDeleteRemovesEverythingForARecording(t *testing.T) {
+	s := open(t, 0)
+	ctx := t.Context()
+	id, err := s.Insert(ctx, NewRecording{Client: "d", RecordedAt: time.Now(), Transcription: "remove me", AudioMIME: "audio/wav", Audio: []byte("x")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddTags(ctx, id, []string{"a", "b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveTag(ctx, id, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if tags, _ := s.Tags(ctx, id); len(tags) != 1 || tags[0] != "b" {
+		t.Fatalf("tags after remove: %v", tags)
+	}
+
+	if err := s.Delete(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Audio(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("audio survived delete: %v", err)
+	}
+	results, err := s.Search(ctx, Query{Text: "remove"})
+	if err != nil || len(results) != 0 {
+		t.Fatalf("keyword index kept the note: %v %v", results, err)
+	}
+	if err := s.Delete(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete: %v", err)
+	}
+}

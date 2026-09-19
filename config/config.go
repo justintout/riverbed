@@ -25,6 +25,7 @@ type Config struct {
 	Audio     Audio     `toml:"audio"`
 	Embedding Embedding `toml:"embedding"`
 	MCPServe  MCPServe  `toml:"mcp_serve"`
+	UI        UI        `toml:"ui"`
 	Router    Router    `toml:"router"`
 	Agents    []Agent   `toml:"agent"`
 	MCP       []MCP     `toml:"mcp"`
@@ -86,6 +87,14 @@ type MCPServe struct {
 	Enabled bool   `toml:"enabled"`
 	Path    string `toml:"path"`
 	Token   string `toml:"token"`
+}
+
+// UI configures the web interface.
+type UI struct {
+	Enabled bool `toml:"enabled"`
+	// Password guards the interface. Empty leaves it open to anyone who can
+	// reach the listener.
+	Password string `toml:"password"`
 }
 
 // SecretKeyHexLength is the length of store.secret_key, which is 32 bytes as
@@ -444,6 +453,7 @@ func (c *Config) applyEnv() {
 	str("RIVERBED_EMBED_BASE_URL", &c.Embedding.BaseURL)
 	str("RIVERBED_EMBED_API_KEY", &c.Embedding.APIKey)
 	str("RIVERBED_MCP_TOKEN", &c.MCPServe.Token)
+	str("RIVERBED_UI_PASSWORD", &c.UI.Password)
 }
 
 // Validate reports whether the configuration describes a runnable system.

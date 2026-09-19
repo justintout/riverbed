@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riverbed</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 48rem; margin: 0 auto; padding: 1rem; }
+  header { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  header .spacer { flex: 1; }
+  form.filters { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  form.filters input[name=q] { flex: 1 1 12rem; }
+  article { border-top: 1px solid; border-color: color-mix(in srgb, currentColor 25%, transparent); padding: .75rem 0; }
+  .meta { font-size: .85rem; opacity: .7; }
+  .text { white-space: pre-wrap; margin: .25rem 0; }
+  .failed { color: crimson; }
+  pre { white-space: pre-wrap; overflow-x: auto; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+  dd { margin: 0; }
+  audio { width: 100%; }
+  .tag { margin-right: .5rem; }
+  table { border-collapse: collapse; }
+  td, th { padding: .15rem .75rem .15rem 0; text-align: left; vertical-align: top; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="#/">Riverbed</a></h1>
+  <a href="#/status">Status</a>
+  <span class="spacer"></span>
+  <button id="logout" hidden>Log out</button>
+</header>
+<main id="main"></main>
+
+<script>
+const main = document.getElementById("main");
+const logoutButton = document.getElementById("logout");
+let status = null;
+
+// h builds an element. Children are text nodes, so note content is never parsed as HTML.
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, "");
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const c of children.flat(Infinity)) if (c != null) el.append(c);
+  return el;
+}
+
+// show replaces the page content, skipping null children.
+const show = (...children) => main.replaceChildren(...children.flat(Infinity).filter((c) => c != null));
+
+class AuthError extends Error {}
+
+async function api(path, opts = {}) {
+  const init = { method: opts.method || "GET", headers: {} };
+  if (opts.body !== undefined) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(opts.body);
+  }
+  const res = await fetch("/api/" + path, init);
+  if (res.status === 401 && path !== "login") throw new AuthError();
+  if (!res.ok) {
+    let message = res.statusText;
+    try { message = (await res.json()).error || message; } catch {}
+    throw new Error(message);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+const when = (s) => new Date(s).toLocaleString();
+
+function fail(err) {
+  if (err instanceof AuthError) return login();
+  show(h("p", { class: "failed" }, err.message));
+}
+
+function login(message) {
+  logoutButton.hidden = true;
+  const input = h("input", { type: "password", name: "password", autofocus: true, autocomplete: "current-password" });
+  const error = h("p", { class: "failed" }, message);
+  show(h("form", {
+    onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        await api("login", { method: "POST", body: { password: input.value } });
+        route();
+      } catch (err) {
+        login(err.message);
+      }
+    },
+  }, h("label", {}, "Password ", input), " ", h("button", {}, "Log in"), error));
+}
+
+logoutButton.addEventListener("click", async () => {
+  await api("logout", { method: "POST" });
+  status = null;
+  login();
+});
+
+// Notes list.
+
+async function list(params) {
+  const filters = h("form", { class: "filters", onsubmit: (e) => {
+    e.preventDefault();
+    const q = new URLSearchParams();
+    for (const [k, v] of new FormData(e.target)) if (v) q.set(k, v);
+    location.hash = "#/?" + q;
+  } });
+
+  const field = (name, options) => {
+    const sel = h("select", { name }, h("option", { value: "" }, options.label),
+      options.values.map(([v, text]) => h("option", { value: v, selected: params.get(name) === v }, text)));
+    return sel;
+  };
+  filters.append(
+    h("input", { type: "search", name: "q", placeholder: "Search", value: params.get("q") || "" }),
+    field("status", { label: "any status", values: ["pending", "running", "done", "failed"].map((s) => [s, s]) }),
+    field("route", { label: "any route", values: [status.router.default, ...status.router.rules.map((r) => r.agent)]
+      .filter((v, i, a) => a.indexOf(v) === i).map((r) => [r, r]) }),
+    field("since_days", { label: "any time", values: [["1", "past day"], ["7", "past week"], ["30", "past month"]] }),
+    h("input", { type: "text", name: "tag", placeholder: "tag", size: 8, value: params.get("tag") || "" }),
+    h("button", {}, "Search"),
+  );
+
+  const limit = Number(params.get("limit")) || 20;
+  const q = new URLSearchParams(params);
+  q.set("limit", limit);
+  const notes = await api("notes?" + q);
+
+  const results = h("div", {}, notes.length ? notes.map(summary) : h("p", {}, "No notes."));
+  if (notes.length === limit) {
+    const more = new URLSearchParams(params);
+    more.set("limit", limit + 20);
+    results.append(h("p", {}, h("a", { href: "#/?" + more }, "Show more")));
+  }
+  show(filters, results);
+}
+
+function summary(n) {
+  const meta = [when(n.recorded_at)];
+  if (n.route) meta.push(n.route);
+  if (n.status !== "done") meta.push(n.status);
+  return h("article", {},
+    h("div", { class: n.status === "failed" ? "meta failed" : "meta" }, meta.join(" · "), " ",
+      n.tags.map((t) => h("span", { class: "tag" }, "#" + t))),
+    h("div", { class: "text" }, h("a", { href: "#/note/" + n.id }, n.text || "(no transcription)")));
+}
+
+// One note.
+
+async function detail(id) {
+  const n = await api("notes/" + id);
+  const back = h("p", {}, h("a", { href: "#/" }, "← All notes"));
+
+  const rows = [
+    ["Recorded", when(n.recorded_at)],
+    ["Received", when(n.received_at)],
+    ["Device", n.client],
+    ["Status", n.status + (n.attempts ? ` (${n.attempts} attempt${n.attempts === 1 ? "" : "s"})` : "")],
+  ];
+  if (n.route) rows.push(["Route", n.route + (n.route_reason ? ` — ${n.route_reason}` : "")]);
+  if (n.prompt && n.prompt !== n.text) rows.push(["Prompt", n.prompt]);
+  if (n.error) rows.push(["Error", h("span", { class: "failed" }, n.error)]);
+
+  const tagInput = h("input", { type: "text", placeholder: "add tag", size: 10 });
+  const tags = h("p", {}, n.tags.map((t) => h("span", { class: "tag" }, "#" + t, " ",
+    h("button", { title: "Remove tag", onclick: () => act(api(`notes/${id}/tags/${encodeURIComponent(t)}`, { method: "DELETE" })) }, "×"))),
+    h("form", { style: "display:inline", onsubmit: (e) => {
+      e.preventDefault();
+      if (tagInput.value.trim()) act(api(`notes/${id}/tags`, { method: "POST", body: { tag: tagInput.value } }));
+    } }, tagInput));
+
+  const actions = h("p", {});
+  if (n.status === "failed") {
+    actions.append(h("button", { onclick: () => act(api(`notes/${id}/requeue`, { method: "POST" })) }, "Retry"), " ");
+  }
+  actions.append(h("button", { onclick: async () => {
+    if (!confirm("Delete this note, its audio and its replies?")) return;
+    try { await api("notes/" + id, { method: "DELETE" }); location.hash = "#/"; } catch (err) { fail(err); }
+  } }, "Delete"));
+
+  const audio = h("audio", { controls: true, preload: "none", src: `/api/notes/${id}/audio` });
+  audio.addEventListener("error", () => audio.remove());
+
+  show(back,
+    h("div", { class: "text" }, n.text || "(no transcription)"),
+    n.audio_bytes ? audio : null,
+    tags,
+    h("dl", {}, rows.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])),
+    n.responses.map((r) => h("section", {}, h("h3", {}, r.agent),
+      h("div", { class: "text" }, r.text),
+      h("div", { class: "meta" }, `${r.input_tokens} tokens in, ${r.output_tokens} out`))),
+    n.tool_calls.length ? h("h3", {}, "Tool calls") : null,
+    n.tool_calls.map((c) => h("details", {},
+      h("summary", { class: c.is_error ? "failed" : "" }, `${c.server}.${c.tool}`, c.is_error ? " (error)" : ""),
+      h("pre", {}, c.arguments || ""), h("pre", {}, c.result || ""))),
+    actions);
+}
+
+async function act(promise) {
+  try { await promise; route(); } catch (err) { fail(err); }
+}
+
+// Status.
+
+function table(head, rows) {
+  return h("table", {}, h("tr", {}, head.map((t) => h("th", {}, t))),
+    rows.map((r) => h("tr", {}, r.map((c) => h("td", {}, c)))));
+}
+
+function showStatus() {
+  const s = status;
+  const counts = ["pending", "running", "done", "failed"].map((k) => [k, String(s.counts[k] || 0)]);
+  show(
+    h("h2", {}, "Notes"), table(["Status", "Count"], counts),
+    h("h2", {}, "System"), h("dl", {},
+      h("dt", {}, "Version"), h("dd", {}, s.version),
+      h("dt", {}, "Embedding"), h("dd", {}, s.embedding.enabled ? `${s.embedding.kind} ${s.embedding.model}` : "off (keyword search only)"),
+      h("dt", {}, "Audio"), h("dd", {}, s.audio_retained ? "kept" : "discarded"),
+      h("dt", {}, "MCP server"), h("dd", {}, s.mcp_serve ? "on" : "off"),
+      h("dt", {}, "Login"), h("dd", {}, s.auth ? "password" : "none")),
+    h("h2", {}, "Routing"),
+    h("p", {}, `Default: ${s.router.default}` + (s.router.classifier ? `. Classifier: ${s.router.classifier}.` : ".")),
+    s.router.rules.length ? table(["Match", "Agent", "Strip", "Tags"],
+      s.router.rules.map((r) => [r.match, r.agent, r.strip ? "yes" : "", r.tags.join(", ")])) : null,
+    h("h2", {}, "Agents"),
+    s.agents.length ? table(["Name", "Kind", "Model"], s.agents.map((a) => [a.name, a.kind, a.model])) : h("p", {}, "None."),
+    h("h2", {}, "MCP servers"),
+    s.mcp.length ? table(["Name", "URL", "Transport", "Auth", "Agents"],
+      s.mcp.map((m) => [m.name, m.url, m.transport, m.auth, m.agents.join(", ") || "all"])) : h("p", {}, "None."),
+    h("p", { class: "meta" }, "Configuration is read-only here. Edit riverbed.toml and restart."));
+}
+
+// Routing.
+
+async function route() {
+  try {
+    // Status doubles as the session check, and its router data feeds the filters.
+    status = await api("status");
+    logoutButton.hidden = !status.auth;
+    const [path, query = ""] = location.hash.slice(1).split("?");
+    const params = new URLSearchParams(query);
+    const note = path.match(/^\/note\/(\d+)$/);
+    if (note) await detail(note[1]);
+    else if (path === "/status") showStatus();
+    else await list(params);
+  } catch (err) {
+    fail(err);
+  }
+}
+
+addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>

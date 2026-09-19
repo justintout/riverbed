@@ -275,7 +275,7 @@ path = "test.db"
 
 func TestExampleConfigIsValid(t *testing.T) {
 	for _, key := range []string{
-		"RIVERBED_WEBHOOK_TOKEN", "RIVERBED_MCP_TOKEN",
+		"RIVERBED_WEBHOOK_TOKEN", "RIVERBED_MCP_TOKEN", "RIVERBED_UI_PASSWORD",
 		"ANTHROPIC_API_KEY", "HOMEASSISTANT_TOKEN",
 	} {
 		t.Setenv(key, "placeholder")

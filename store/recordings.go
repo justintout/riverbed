@@ -274,6 +274,50 @@ func (s *Store) AddTags(ctx context.Context, id int64, tags []string) error {
 	return nil
 }
 
+// RemoveTag detaches a tag from a recording. Removing a tag it does not carry
+// is not an error.
+func (s *Store) RemoveTag(ctx context.Context, id int64, tag string) error {
+	return s.exec(ctx, `DELETE FROM tags WHERE recording_id = ?1 AND tag = ?2`, id, tag)
+}
+
+// Delete removes a recording with its audio, embeddings, replies, tool calls and
+// tags. It returns ErrNotFound when the recording does not exist.
+func (s *Store) Delete(ctx context.Context, id int64) error {
+	conn, release, err := s.conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := sqlitex.Execute(conn, `DELETE FROM recordings WHERE id = ?1`,
+		&sqlitex.ExecOptions{Args: []any{id}}); err != nil {
+		return fmt.Errorf("store: delete recording %d: %w", id, err)
+	}
+	if conn.Changes() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CountByStatus returns how many recordings hold each status.
+func (s *Store) CountByStatus(ctx context.Context) (map[string]int, error) {
+	conn, release, err := s.conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	counts := map[string]int{}
+	if err := sqlitex.ExecuteTransient(conn,
+		`SELECT status, COUNT(*) FROM recordings GROUP BY status`,
+		&sqlitex.ExecOptions{ResultFunc: func(stmt *sqlite.Stmt) error {
+			counts[stmt.ColumnText(0)] = int(stmt.ColumnInt64(1))
+			return nil
+		}}); err != nil {
+		return nil, fmt.Errorf("store: count by status: %w", err)
+	}
+	return counts, nil
+}
+
 // Tags returns a recording's tags in alphabetical order.
 func (s *Store) Tags(ctx context.Context, id int64) ([]string, error) {
 	conn, release, err := s.conn(ctx)

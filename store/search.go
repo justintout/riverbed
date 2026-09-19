@@ -33,6 +33,9 @@ type Query struct {
 	// invoked. Nil means no restriction.
 	ToolUsed *bool
 
+	// Status restricts results to recordings holding this status.
+	Status string
+
 	// Limit caps the results. Zero means 20.
 	Limit int
 }
@@ -233,6 +236,9 @@ func (q Query) filters(start int) (string, []any) {
 	}
 	if q.Route != "" {
 		b.WriteString(" AND r.route = " + next(q.Route))
+	}
+	if q.Status != "" {
+		b.WriteString(" AND r.status = " + next(q.Status))
 	}
 	for _, tag := range q.Tags {
 		b.WriteString(" AND EXISTS (SELECT 1 FROM tags t WHERE t.recording_id = r.id AND t.tag = " + next(tag) + ")")
