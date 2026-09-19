@@ -40,7 +40,10 @@ type App struct {
 type OpenOptions struct {
 	Config  config.Config
 	Version string
-	Logger  *slog.Logger
+	// ConfigPath is the file Config was loaded from, which the web interface
+	// edits. Empty when Config came from the environment alone.
+	ConfigPath string
+	Logger     *slog.Logger
 	// Prompter lets an interactive command complete an OAuth flow. The daemon
 	// leaves it nil, which makes a server needing authorization report what to
 	// run instead of waiting for a browser.
@@ -245,12 +248,14 @@ func (a *App) routes(opts OpenOptions, embedder embedding.Embedder) error {
 
 	if cfg.UI.Enabled {
 		web, err := ui.New(ui.Options{
-			Store:    a.Store,
-			Embedder: embedder,
-			Config:   cfg,
-			Version:  opts.Version,
-			Notify:   a.pipeline.Notify,
-			Logger:   a.log,
+			Store:      a.Store,
+			Embedder:   embedder,
+			Config:     cfg,
+			Version:    opts.Version,
+			Notify:     a.pipeline.Notify,
+			Embed:      a.pipeline.Embed,
+			ConfigPath: opts.ConfigPath,
+			Logger:     a.log,
 		})
 		if err != nil {
 			return err

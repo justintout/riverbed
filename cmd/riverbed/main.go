@@ -168,7 +168,7 @@ func serve(args []string) error {
 	defer stop()
 
 	app, err := riverbed.Open(ctx, riverbed.OpenOptions{
-		Config: cfg, Version: version, Logger: logger,
+		Config: cfg, Version: version, Logger: logger, ConfigPath: c.configPath,
 	})
 	if err != nil {
 		return err

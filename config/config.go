@@ -258,18 +258,34 @@ func Default() Config {
 // environment overrides, and validates the result. An empty path loads the
 // defaults with environment overrides only.
 func Load(path string) (Config, error) {
+	if path == "" {
+		return build("", "")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
+	}
+	return build(string(data), path)
+}
+
+// Parse loads configuration from TOML text, exactly as Load does from a file.
+func Parse(text string) (Config, error) { return build(text, "") }
+
+// build expands, decodes, applies the environment and validates. name labels
+// errors and may be empty.
+func build(text, name string) (Config, error) {
 	cfg := Default()
-	if path != "" {
-		data, err := os.ReadFile(path)
+	label := "config"
+	if name != "" {
+		label += " " + name
+	}
+	if text != "" {
+		expanded, err := expand(text)
 		if err != nil {
-			return Config{}, fmt.Errorf("config: %w", err)
-		}
-		expanded, err := expand(string(data))
-		if err != nil {
-			return Config{}, fmt.Errorf("config %s: %w", path, err)
+			return Config{}, fmt.Errorf("%s: %w", label, err)
 		}
 		if err := toml.Unmarshal([]byte(expanded), &cfg); err != nil {
-			return Config{}, fmt.Errorf("config %s: %w", path, err)
+			return Config{}, fmt.Errorf("%s: %w", label, err)
 		}
 	}
 	cfg.applyEnv()

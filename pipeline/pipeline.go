@@ -298,6 +298,15 @@ func (p *Pipeline) embed(ctx context.Context, rec store.Recording) error {
 	return p.opts.Store.PutEmbeddings(ctx, rec.ID, chunks, vectors)
 }
 
+// Embed stores vectors for one recording, for a caller that changed its text.
+func (p *Pipeline) Embed(ctx context.Context, id int64) error {
+	rec, err := p.opts.Store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	return p.embed(ctx, rec)
+}
+
 // Backfill embeds recordings stored before an embedder was configured. It stops
 // when nothing is left or ctx is cancelled.
 func (p *Pipeline) Backfill(ctx context.Context, batch int) (int, error) {

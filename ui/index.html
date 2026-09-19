@@ -20,6 +20,8 @@
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
   dd { margin: 0; }
   audio { width: 100%; }
+  textarea { width: 100%; box-sizing: border-box; font: inherit; }
+  textarea.code { font: 14px/1.4 ui-monospace, monospace; }
   .tag { margin-right: .5rem; }
   table { border-collapse: collapse; }
   td, th { padding: .15rem .75rem .15rem 0; text-align: left; vertical-align: top; }
@@ -28,7 +30,9 @@
 <body>
 <header>
   <h1><a href="#/">Riverbed</a></h1>
+  <a href="#/new">New note</a>
   <a href="#/status">Status</a>
+  <a href="#/config">Config</a>
   <span class="spacer"></span>
   <button id="logout" hidden>Log out</button>
 </header>
@@ -176,20 +180,39 @@ async function detail(id) {
       if (tagInput.value.trim()) act(api(`notes/${id}/tags`, { method: "POST", body: { tag: tagInput.value } }));
     } }, tagInput));
 
+  const textBox = h("div", { class: "text" }, n.text || "(no transcription)");
+  const editButton = h("button", { onclick: () => {
+    const area = h("textarea", { rows: 6 }); area.value = n.text;
+    const replay = h("input", { type: "checkbox" });
+    const form = h("form", { onsubmit: (e) => {
+      e.preventDefault();
+      if (replay.checked && !confirm("Run the edited note through routing and its agent again? Agent actions may repeat.")) return;
+      act(api("notes/" + id, { method: "PUT", body: { text: area.value, replay: replay.checked } }));
+    } }, area, h("label", {}, replay, " Replay after saving"), " ",
+      h("button", {}, "Save"), " ", h("button", { type: "button", onclick: route }, "Cancel"));
+    textBox.replaceWith(form);
+    editButton.hidden = true;
+    area.focus();
+  } }, "Edit");
+
   const actions = h("p", {});
-  if (n.status === "failed") {
-    actions.append(h("button", { onclick: () => act(api(`notes/${id}/requeue`, { method: "POST" })) }, "Retry"), " ");
+  actions.append(editButton, " ");
+  if (n.status === "failed" || n.status === "done") {
+    actions.append(h("button", { onclick: () => {
+      if (n.status === "done" && !confirm("Run this note through routing and its agent again? Agent actions may repeat.")) return;
+      act(api(`notes/${id}/replay`, { method: "POST" }));
+    } }, n.status === "failed" ? "Retry" : "Replay"), " ");
   }
   actions.append(h("button", { onclick: async () => {
     if (!confirm("Delete this note, its audio and its replies?")) return;
     try { await api("notes/" + id, { method: "DELETE" }); location.hash = "#/"; } catch (err) { fail(err); }
   } }, "Delete"));
 
-  const audio = h("audio", { controls: true, preload: "none", src: `/api/notes/${id}/audio` });
+  const audio = h("audio", { controls: true, preload: "metadata", src: `/api/notes/${id}/audio` });
   audio.addEventListener("error", () => audio.remove());
 
   show(back,
-    h("div", { class: "text" }, n.text || "(no transcription)"),
+    textBox,
     n.audio_bytes ? audio : null,
     tags,
     h("dl", {}, rows.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])),
@@ -205,6 +228,43 @@ async function detail(id) {
 
 async function act(promise) {
   try { await promise; route(); } catch (err) { fail(err); }
+}
+
+// New note.
+
+function newNote() {
+  const area = h("textarea", { rows: 6, autofocus: true });
+  show(h("h2", {}, "New note"), h("form", { onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      const created = await api("notes", { method: "POST", body: { text: area.value } });
+      location.hash = "#/note/" + created.id;
+    } catch (err) { fail(err); }
+  } }, area, h("button", {}, "Add")),
+  h("p", { class: "meta" }, "A typed note is routed and searchable like a spoken one."));
+}
+
+// Configuration.
+
+async function config() {
+  const c = await api("config");
+  if (!c.editable) return show(h("h2", {}, "Configuration"), h("p", {}, c.reason));
+  const area = h("textarea", { class: "code", rows: 30, spellcheck: false });
+  area.value = c.text;
+  const message = h("p", {});
+  show(h("h2", {}, "Configuration"), h("p", { class: "meta" }, c.path),
+    h("form", { onsubmit: async (e) => {
+      e.preventDefault();
+      message.className = "";
+      try {
+        await api("config", { method: "PUT", body: { text: area.value } });
+        message.textContent = "Saved. Restart Riverbed to apply it.";
+      } catch (err) {
+        message.className = "failed";
+        message.textContent = err.message;
+      }
+    } }, area, h("button", {}, "Save")), message,
+    h("p", { class: "meta" }, "Values such as ${VAR} are read from the environment when Riverbed starts, so keep secrets there."));
 }
 
 // Status.
@@ -249,6 +309,8 @@ async function route() {
     const note = path.match(/^\/note\/(\d+)$/);
     if (note) await detail(note[1]);
     else if (path === "/status") showStatus();
+    else if (path === "/new") newNote();
+    else if (path === "/config") await config();
     else await list(params);
   } catch (err) {
     fail(err);

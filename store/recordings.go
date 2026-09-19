@@ -274,6 +274,48 @@ func (s *Store) AddTags(ctx context.Context, id int64, tags []string) error {
 	return nil
 }
 
+// SetTranscription replaces a recording's text and drops its embeddings, which
+// describe the old text. The keyword index follows by trigger.
+func (s *Store) SetTranscription(ctx context.Context, id int64, text string) error {
+	conn, release, err := s.conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	end, err := sqlitex.ImmediateTransaction(conn)
+	if err != nil {
+		return fmt.Errorf("store: set transcription: %w", err)
+	}
+	err = func() error {
+		if err := sqlitex.Execute(conn, `UPDATE recordings SET transcription = ?1 WHERE id = ?2`,
+			&sqlitex.ExecOptions{Args: []any{nullable(text), id}}); err != nil {
+			return err
+		}
+		if conn.Changes() == 0 {
+			return ErrNotFound
+		}
+		return sqlitex.Execute(conn, `DELETE FROM embeddings WHERE recording_id = ?1`,
+			&sqlitex.ExecOptions{Args: []any{id}})
+	}()
+	end(&err)
+	if errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("store: set transcription %d: %w", id, err)
+	}
+	return nil
+}
+
+// Replay puts a recording back in the queue as if it had just arrived, with a
+// fresh allowance of attempts. Earlier replies and tool calls stay as history.
+func (s *Store) Replay(ctx context.Context, id int64) error {
+	return s.exec(ctx,
+		`UPDATE recordings SET status = ?1, attempts = 0, started_at = NULL, error = NULL WHERE id = ?2`,
+		StatusPending, id)
+}
+
 // RemoveTag detaches a tag from a recording. Removing a tag it does not carry
 // is not an error.
 func (s *Store) RemoveTag(ctx context.Context, id int64, tag string) error {

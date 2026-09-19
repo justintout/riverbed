@@ -3,6 +3,8 @@
 package ui
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	_ "embed"
@@ -12,6 +14,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,9 +43,14 @@ type Options struct {
 	Embedder embedding.Embedder
 	Config   config.Config
 	Version  string
-	// Notify wakes a worker after a recording is requeued.
+	// Notify wakes a worker after a recording is queued.
 	Notify func()
-	Logger *slog.Logger
+	// Embed re-embeds one recording after its text changed. Nil when embedding
+	// is off.
+	Embed func(ctx context.Context, id int64) error
+	// ConfigPath is the file the configuration page edits. Empty disables it.
+	ConfigPath string
+	Logger     *slog.Logger
 }
 
 // Handler serves the interface. Mount it at "GET /{$}" and "/api/".
@@ -69,12 +78,16 @@ func New(opts Options) (*Handler, error) {
 	h.mux.HandleFunc("POST /api/logout", h.logout)
 	h.mux.HandleFunc("GET /api/status", h.guard(h.status))
 	h.mux.HandleFunc("GET /api/notes", h.guard(h.list))
+	h.mux.HandleFunc("POST /api/notes", h.guard(h.create))
 	h.mux.HandleFunc("GET /api/notes/{id}", h.guard(h.get))
+	h.mux.HandleFunc("PUT /api/notes/{id}", h.guard(h.edit))
 	h.mux.HandleFunc("GET /api/notes/{id}/audio", h.guard(h.audio))
 	h.mux.HandleFunc("DELETE /api/notes/{id}", h.guard(h.remove))
-	h.mux.HandleFunc("POST /api/notes/{id}/requeue", h.guard(h.requeue))
+	h.mux.HandleFunc("POST /api/notes/{id}/replay", h.guard(h.replay))
 	h.mux.HandleFunc("POST /api/notes/{id}/tags", h.guard(h.addTag))
 	h.mux.HandleFunc("DELETE /api/notes/{id}/tags/{tag}", h.guard(h.removeTag))
+	h.mux.HandleFunc("GET /api/config", h.guard(h.getConfig))
+	h.mux.HandleFunc("PUT /api/config", h.guard(h.putConfig))
 	return h, nil
 }
 
@@ -341,8 +354,8 @@ func (h *Handler) audio(w http.ResponseWriter, r *http.Request) {
 	if rec.AudioMIME != "" {
 		w.Header().Set("Content-Type", rec.AudioMIME)
 	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	_, _ = w.Write(data)
+	// ServeContent answers range requests, which Safari needs to play audio.
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
 }
 
 func (h *Handler) remove(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +370,88 @@ func (h *Handler) remove(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) requeue(w http.ResponseWriter, r *http.Request) {
+// create stores a note typed in the browser. It has no audio, and it goes
+// through the pipeline like a spoken one, so it is routed and embedded.
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	text := strings.TrimSpace(body.Text)
+	if text == "" {
+		fail(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	id, err := h.opts.Store.Insert(r.Context(), store.NewRecording{
+		Client: "web", RecordedAt: time.Now(), Transcription: text,
+	})
+	if err != nil {
+		h.serverError(w, "create note", err)
+		return
+	}
+	h.notify()
+	w.WriteHeader(http.StatusCreated)
+	respond(w, map[string]int64{"id": id})
+}
+
+// edit replaces a note's text. With replay set the note is queued again, and
+// the pipeline re-embeds it. Without, the embeddings are rebuilt here.
+func (h *Handler) edit(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Text   string `json:"text"`
+		Replay bool   `json:"replay"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	text := strings.TrimSpace(body.Text)
+	if text == "" {
+		fail(w, http.StatusBadRequest, "text is required")
+		return
+	}
+	rec, err := h.opts.Store.Get(r.Context(), id)
+	if err != nil {
+		h.storeError(w, "get note", err)
+		return
+	}
+	if body.Replay && !replayable(rec) {
+		fail(w, http.StatusConflict, "this note is still being processed")
+		return
+	}
+	if err := h.opts.Store.SetTranscription(r.Context(), id, text); err != nil {
+		h.storeError(w, "edit note", err)
+		return
+	}
+	switch {
+	case body.Replay:
+		if err := h.opts.Store.Replay(r.Context(), id); err != nil {
+			h.serverError(w, "replay", err)
+			return
+		}
+		h.notify()
+	case h.opts.Embed != nil:
+		if err := h.opts.Embed(r.Context(), id); err != nil {
+			h.serverError(w, "embed the edited note", err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// replayable reports whether a note is idle. Replaying one a worker holds would
+// run it twice at once.
+func replayable(rec store.Recording) bool {
+	return rec.Status == store.StatusDone || rec.Status == store.StatusFailed
+}
+
+// replay runs a finished or failed note through routing and its agent again.
+func (h *Handler) replay(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
@@ -367,18 +461,22 @@ func (h *Handler) requeue(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, "get note", err)
 		return
 	}
-	if rec.Status != store.StatusFailed {
-		fail(w, http.StatusConflict, "only a failed note can be requeued")
+	if !replayable(rec) {
+		fail(w, http.StatusConflict, "this note is still being processed")
 		return
 	}
-	if err := h.opts.Store.Requeue(r.Context(), id); err != nil {
-		h.serverError(w, "requeue", err)
+	if err := h.opts.Store.Replay(r.Context(), id); err != nil {
+		h.serverError(w, "replay", err)
 		return
 	}
+	h.notify()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) notify() {
 	if h.opts.Notify != nil {
 		h.opts.Notify()
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) addTag(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +516,87 @@ func (h *Handler) removeTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Configuration.
+
+// configBlocked explains why the configuration cannot be edited here, or returns
+// "". Editing needs a password because the file decides where credentials are
+// sent, so an open listener must not offer it.
+func (h *Handler) configBlocked() string {
+	switch {
+	case h.opts.ConfigPath == "":
+		return "Riverbed was started without a configuration file."
+	case !h.authRequired():
+		return "Set ui.password to edit the configuration from the browser."
+	}
+	return ""
+}
+
+func (h *Handler) getConfig(w http.ResponseWriter, _ *http.Request) {
+	if reason := h.configBlocked(); reason != "" {
+		respond(w, map[string]any{"editable": false, "reason": reason})
+		return
+	}
+	data, err := os.ReadFile(h.opts.ConfigPath)
+	if err != nil {
+		h.serverError(w, "read the configuration", err)
+		return
+	}
+	respond(w, map[string]any{"editable": true, "path": h.opts.ConfigPath, "text": string(data)})
+}
+
+// putConfig validates the text as Riverbed would at startup, then replaces the
+// file. The running system is not changed: it reads the file only when it starts.
+func (h *Handler) putConfig(w http.ResponseWriter, r *http.Request) {
+	if reason := h.configBlocked(); reason != "" {
+		fail(w, http.StatusForbidden, reason)
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		fail(w, http.StatusBadRequest, "request body must be JSON")
+		return
+	}
+	if _, err := config.Parse(body.Text); err != nil {
+		fail(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if err := writeFile(h.opts.ConfigPath, []byte(body.Text)); err != nil {
+		h.serverError(w, "write the configuration", err)
+		return
+	}
+	h.log.Info("configuration saved from the web interface, restart to apply", "path", h.opts.ConfigPath)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeFile replaces path through a temporary file, so a crash cannot leave a
+// half-written configuration.
+func writeFile(path string, data []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".riverbed-config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // Status.

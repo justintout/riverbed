@@ -360,6 +360,40 @@ path = "/mcp"
 token = "${RIVERBED_MCP_TOKEN}"
 ```
 
+## Web interface
+
+Set `ui.enabled` and Riverbed serves a small web page at the root of its listener.
+It lists recent notes and searches them by keyword and by meaning. A note's page
+plays the audio when Riverbed kept it, and shows the agent replies and tool calls.
+From there you can:
+
+- edit the text, and optionally replay the note after saving;
+- replay a finished note, or retry a failed one;
+- add or remove tags, or delete the note.
+
+The New note page adds a note by typing it. A typed note has no audio, and it goes
+through routing and embedding like a spoken one. Replaying runs the route and the
+agent again, so an agent that acts on the world may act twice. Earlier replies and
+tool calls stay on the note as history.
+
+The Status page shows queue counts and the routing, agents and MCP servers in
+effect. The Config page edits `riverbed.toml` as text. Riverbed checks the text as
+it would at startup and refuses to save it if it is invalid. Saving does not change
+the running system: restart Riverbed to apply it. The Config page needs a password
+and a configuration file, because the file decides where credentials are sent.
+
+```toml
+[ui]
+enabled = true
+password = "${RIVERBED_UI_PASSWORD}"
+```
+
+With no `password`, anyone who can reach the listener can read and delete notes.
+Riverbed logs a warning at startup in that case. Set one when the listener is
+reachable beyond a private network. A login lasts 30 days and ends when Riverbed
+restarts. Serve the page over HTTPS, because the password travels in the login
+request.
+
 ## Agents
 
 ```toml

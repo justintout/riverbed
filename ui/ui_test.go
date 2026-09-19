@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -98,17 +100,17 @@ func TestManageANote(t *testing.T) {
 		t.Fatalf("remove tag: got %d", got)
 	}
 
-	if got := do(h, "POST", path+"/requeue", "").Code; got != http.StatusConflict {
-		t.Fatalf("requeue of a note that has not failed: got %d, want 409", got)
+	if got := do(h, "POST", path+"/replay", "").Code; got != http.StatusConflict {
+		t.Fatalf("replay of a note a worker may hold: got %d, want 409", got)
 	}
 	if err := s.Finish(t.Context(), id, errors.New("boom")); err != nil {
 		t.Fatal(err)
 	}
-	if got := do(h, "POST", path+"/requeue", "").Code; got != http.StatusNoContent {
-		t.Fatalf("requeue of a failed note: got %d", got)
+	if got := do(h, "POST", path+"/replay", "").Code; got != http.StatusNoContent {
+		t.Fatalf("replay of a failed note: got %d", got)
 	}
 	if rec, _ := s.Get(t.Context(), id); rec.Status != store.StatusPending {
-		t.Fatalf("status after requeue: %s", rec.Status)
+		t.Fatalf("status after replay: %s", rec.Status)
 	}
 
 	if got := do(h, "DELETE", path, "").Code; got != http.StatusNoContent {
@@ -116,6 +118,113 @@ func TestManageANote(t *testing.T) {
 	}
 	if got := do(h, "GET", path, "").Code; got != http.StatusNotFound {
 		t.Fatalf("get after delete: got %d, want 404", got)
+	}
+}
+
+func TestCreateAndEditNote(t *testing.T) {
+	h, s := newHandler(t, "")
+
+	created := do(h, "POST", "/api/notes", `{"text":"call the plumber"}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create: got %d: %s", created.Code, created.Body)
+	}
+	if got := do(h, "POST", "/api/notes", `{"text":"  "}`).Code; got != http.StatusBadRequest {
+		t.Fatalf("empty note: got %d, want 400", got)
+	}
+	rec, err := s.Get(t.Context(), 1)
+	if err != nil || rec.Client != "web" || rec.Status != store.StatusPending {
+		t.Fatalf("stored note: %+v %v", rec, err)
+	}
+
+	// Editing without replay changes the text and leaves the status alone.
+	if got := do(h, "PUT", "/api/notes/1", `{"text":"call the electrician"}`).Code; got != http.StatusNoContent {
+		t.Fatalf("edit: got %d", got)
+	}
+	if body := do(h, "GET", "/api/notes?q=electrician", "").Body.String(); !strings.Contains(body, "electrician") {
+		t.Fatalf("keyword index missed the edit: %s", body)
+	}
+	if body := do(h, "GET", "/api/notes?q=plumber", "").Body.String(); strings.Contains(body, "plumber") {
+		t.Fatalf("keyword index kept the old text: %s", body)
+	}
+
+	// A note a worker may hold cannot be replayed, and the text stays as it was.
+	if got := do(h, "PUT", "/api/notes/1", `{"text":"changed","replay":true}`).Code; got != http.StatusConflict {
+		t.Fatalf("edit with replay while pending: got %d, want 409", got)
+	}
+	if rec, _ := s.Get(t.Context(), 1); rec.Transcription != "call the electrician" {
+		t.Fatalf("a refused edit changed the text: %q", rec.Transcription)
+	}
+
+	if err := s.Finish(t.Context(), 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := do(h, "PUT", "/api/notes/1", `{"text":"call the roofer","replay":true}`).Code; got != http.StatusNoContent {
+		t.Fatalf("edit with replay: got %d", got)
+	}
+	if rec, _ := s.Get(t.Context(), 1); rec.Status != store.StatusPending || rec.Transcription != "call the roofer" {
+		t.Fatalf("after edit with replay: %+v", rec)
+	}
+}
+
+func TestAudioSupportsRanges(t *testing.T) {
+	h, s := newHandler(t, "")
+	id, err := s.Insert(t.Context(), store.NewRecording{
+		Client: "device", RecordedAt: time.Now(), Transcription: "x",
+		AudioMIME: "audio/wav", Audio: []byte("0123456789"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/notes/"+strconv.FormatInt(id, 10)+"/audio", nil)
+	req.Header.Set("Range", "bytes=2-4")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPartialContent || rec.Body.String() != "234" {
+		t.Fatalf("got %d %q, want 206 \"234\"", rec.Code, rec.Body)
+	}
+}
+
+func TestConfigEditing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "riverbed.toml")
+	original := "[webhook]\ntoken = \"abc\"\n"
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	save := func(h *Handler, text string) int {
+		body, _ := json.Marshal(map[string]string{"text": text})
+		return do(h, "PUT", "/api/config", string(body)).Code
+	}
+
+	open, _ := newHandler(t, "")
+	open.opts.ConfigPath = path
+	if got := save(open, original+"# x\n"); got != http.StatusForbidden {
+		t.Fatalf("save without a password: got %d, want 403", got)
+	}
+
+	h, _ := newHandler(t, "pw")
+	h.opts.ConfigPath = path
+	session := do(h, "POST", "/api/login", `{"password":"pw"}`).Result().Cookies()[0]
+	put := func(text string) int {
+		body, _ := json.Marshal(map[string]string{"text": text})
+		return do(h, "PUT", "/api/config", string(body), session).Code
+	}
+
+	if got := put("[webhook\n"); got != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid TOML: got %d, want 422", got)
+	}
+	if got := put("[webhook]\ntoken = \"${RIVERBED_UI_TEST_UNSET}\"\n"); got != http.StatusUnprocessableEntity {
+		t.Fatalf("unset variable: got %d, want 422", got)
+	}
+	if data, _ := os.ReadFile(path); string(data) != original {
+		t.Fatalf("a rejected save changed the file: %q", data)
+	}
+
+	updated := original + "# edited\n"
+	if got := put(updated); got != http.StatusNoContent {
+		t.Fatalf("valid save: got %d", got)
+	}
+	if data, _ := os.ReadFile(path); string(data) != updated {
+		t.Fatalf("file after save: %q", data)
 	}
 }
 
