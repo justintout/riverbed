@@ -5,26 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Riverbed</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 16px/1.5 system-ui, sans-serif; max-width: 48rem; margin: 0 auto; padding: 1rem; }
-  header { display: flex; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
+  :root {
+    color-scheme: light dark;
+    --gap: 1rem;
+    --rule: color-mix(in srgb, currentColor 20%, transparent);
+  }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 0 auto; padding: 1.5rem var(--gap) 4rem; }
+  h1, h2, h3 { line-height: 1.25; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; }
+  h3 { font-size: 1rem; margin: 1.5rem 0 .25rem; }
+  p { margin: .5rem 0; }
+
+  header { display: flex; gap: .5rem 1.25rem; align-items: baseline; flex-wrap: wrap; padding-bottom: var(--gap); margin-bottom: 1.5rem; border-bottom: 1px solid var(--rule); }
   header h1 { font-size: 1.25rem; margin: 0; }
+  header h1 a { text-decoration: none; color: inherit; }
   header .spacer { flex: 1; }
-  form.filters { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
-  form.filters input[name=q] { flex: 1 1 12rem; }
-  article { border-top: 1px solid; border-color: color-mix(in srgb, currentColor 25%, transparent); padding: .75rem 0; }
+
+  input, select, textarea, button { font: inherit; padding: .3rem .6rem; }
+  button { cursor: pointer; }
+  textarea { width: 100%; box-sizing: border-box; }
+  textarea.code { font: 14px/1.4 ui-monospace, monospace; }
+  main form:not(.filters) { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin-bottom: 1.5rem; }
+  form.filters { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 1rem; }
+  form.filters input[name=q] { flex: 1 1 14rem; }
+
+  article { padding: .875rem 0; }
+  article + article { border-top: 1px solid var(--rule); }
   .meta { font-size: .85rem; opacity: .7; }
   .text { white-space: pre-wrap; margin: .25rem 0; }
   .failed { color: crimson; }
-  pre { white-space: pre-wrap; overflow-x: auto; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
-  dd { margin: 0; }
-  audio { width: 100%; }
-  textarea { width: 100%; box-sizing: border-box; font: inherit; }
-  textarea.code { font: 14px/1.4 ui-monospace, monospace; }
   .tag { margin-right: .5rem; }
-  table { border-collapse: collapse; }
-  td, th { padding: .15rem .75rem .15rem 0; text-align: left; vertical-align: top; }
+
+  audio { width: 100%; margin: var(--gap) 0; }
+  pre { white-space: pre-wrap; overflow-x: auto; }
+  details { margin: .5rem 0; }
+  section { margin: 1.5rem 0; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1.25rem; margin: 1.5rem 0; }
+  dd { margin: 0; }
+  table { border-collapse: collapse; margin: .5rem 0; }
+  td, th { padding: .25rem 1.25rem .25rem 0; text-align: left; vertical-align: top; }
+  th { border-bottom: 1px solid var(--rule); }
 </style>
 </head>
 <body>
