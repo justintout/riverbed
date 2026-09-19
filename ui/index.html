@@ -7,53 +7,216 @@
 <style>
   :root {
     color-scheme: light dark;
-    --gap: 1rem;
-    --rule: color-mix(in srgb, currentColor 20%, transparent);
+
+    --ground: #f3f5f2;
+    --surface: #fbfcfb;
+    --ink: #18201d;
+    --ink-2: #55635d;
+    --rule: #dbe1de;
+    --rule-strong: #c1cbc6;
+    --accent: #1d6b64;
+    --on-accent: #ffffff;
+    --accent-soft: #e0eeeb;
+    --ok: #2f7a4f;
+    --warn: #93610b;
+    --run: #2a5fa8;
+    --bad: #b1362b;
+
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --t-xs: .75rem;
+    --t-sm: .8125rem;
+    --t-base: .9375rem;
+    --t-note: 1.0625rem;
+    --t-lead: 1.375rem;
+
+    --gap: 1.5rem;
+    --radius: 6px;
   }
-  body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 0 auto; padding: 1.5rem var(--gap) 4rem; }
-  h1, h2, h3 { line-height: 1.25; }
-  h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; }
-  h3 { font-size: 1rem; margin: 1.5rem 0 .25rem; }
-  p { margin: .5rem 0; }
 
-  header { display: flex; gap: .5rem 1.25rem; align-items: baseline; flex-wrap: wrap; padding-bottom: var(--gap); margin-bottom: 1.5rem; border-bottom: 1px solid var(--rule); }
-  header h1 { font-size: 1.25rem; margin: 0; }
-  header h1 a { text-decoration: none; color: inherit; }
-  header .spacer { flex: 1; }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0f1513;
+      --surface: #151c19;
+      --ink: #e4ebe8;
+      --ink-2: #9aaba4;
+      --rule: #232d29;
+      --rule-strong: #34423d;
+      --accent: #63c1b6;
+      --on-accent: #0c1a17;
+      --accent-soft: #16302c;
+      --ok: #6cc38f;
+      --warn: #e0a94f;
+      --run: #7fadee;
+      --bad: #f0857a;
+    }
+  }
 
-  input, select, textarea, button { font: inherit; padding: .3rem .6rem; }
-  button { cursor: pointer; }
-  textarea { width: 100%; box-sizing: border-box; }
-  textarea.code { font: 14px/1.4 ui-monospace, monospace; }
-  main form:not(.filters) { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin-bottom: 1.5rem; }
-  form.filters { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 1rem; }
-  form.filters input[name=q] { flex: 1 1 14rem; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto;
+    max-width: 42rem;
+    padding: 1.25rem 1rem 4rem;
+    background: var(--ground);
+    color: var(--ink);
+    font: var(--t-base)/1.5 var(--sans);
+  }
+  a { color: var(--accent); }
+  h1, h2, h3, p, dl, dd, ul { margin: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  article { padding: .875rem 0; }
-  article + article { border-top: 1px solid var(--rule); }
-  .meta { font-size: .85rem; opacity: .7; }
-  .text { white-space: pre-wrap; margin: .25rem 0; }
-  .failed { color: crimson; }
-  .tag { margin-right: .5rem; }
+  /* Header */
+  header {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding-bottom: .875rem; margin-bottom: var(--gap);
+    border-bottom: 1px solid var(--rule);
+  }
+  .brand { font: 600 1.25rem/1 var(--serif); letter-spacing: -.01em; color: var(--ink); text-decoration: none; }
+  nav { display: flex; gap: 1.25rem; }
+  nav a { padding-block: .25rem; color: var(--ink-2); text-decoration: none; border-bottom: 2px solid transparent; }
+  nav a:hover { color: var(--ink); }
+  nav a[aria-current] { color: var(--ink); border-bottom-color: var(--accent); }
+  .spacer { flex: 1; }
 
-  audio { width: 100%; margin: var(--gap) 0; }
-  pre { white-space: pre-wrap; overflow-x: auto; }
-  details { margin: .5rem 0; }
-  section { margin: 1.5rem 0; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1.25rem; margin: 1.5rem 0; }
-  dd { margin: 0; }
-  table { border-collapse: collapse; margin: .5rem 0; }
-  td, th { padding: .25rem 1.25rem .25rem 0; text-align: left; vertical-align: top; }
-  th { border-bottom: 1px solid var(--rule); }
+  main { display: flex; flex-direction: column; gap: var(--gap); }
+
+  /* Controls */
+  input, select, textarea, button { font: inherit; color: var(--ink); }
+  input, select, textarea {
+    width: 100%; padding: .45rem .65rem;
+    background: var(--surface); border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  }
+  ::placeholder { color: var(--ink-2); opacity: .8; }
+  textarea { display: block; resize: vertical; line-height: 1.45; }
+  button {
+    padding: .4rem .9rem; cursor: pointer; font-size: var(--t-sm); font-weight: 500;
+    background: transparent; border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  }
+  button:hover { background: var(--accent-soft); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger { margin-left: auto; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+  button.danger:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  button.quiet { border-color: transparent; color: var(--ink-2); }
+  @media (prefers-reduced-motion: no-preference) {
+    button { transition: background-color .12s, filter .12s; }
+  }
+
+  /* Composer: the one raised object on the list page */
+  .compose { padding: .75rem .875rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+  .compose:focus-within { border-color: var(--accent); }
+  .compose textarea { padding: 0; border: 0; background: transparent; font: var(--t-note)/1.45 var(--serif); }
+  .compose textarea:focus-visible { outline: none; }
+  .compose .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .5rem; }
+  .compose .hint { font-size: var(--t-xs); color: var(--ink-2); }
+
+  /* Filters */
+  .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .5rem; }
+  .filters .wide { grid-column: 1 / -1; }
+  .filters select, .filters input { font-size: var(--t-sm); }
+
+  /* Timeline */
+  .day { display: flex; flex-direction: column; }
+  .day h2 {
+    padding-bottom: .4rem; border-bottom: 1px solid var(--rule);
+    font-size: var(--t-xs); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2);
+  }
+  .notes { list-style: none; padding: 0; }
+  .notes li + li { border-top: 1px solid var(--rule); }
+  a.note {
+    display: grid; grid-template-columns: 4.75rem minmax(0, 1fr); gap: .75rem;
+    padding: .875rem 0; color: inherit; text-decoration: none;
+  }
+  a.note:hover .text { color: var(--accent); }
+  .time {
+    display: flex; flex-direction: column; padding-top: .3rem;
+    font: var(--t-xs)/1.35 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-2);
+  }
+  .text { font: var(--t-note)/1.45 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; }
+  a.note .text {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; margin-top: .375rem; font-size: var(--t-xs); color: var(--ink-2); }
+  .tag { display: inline-flex; align-items: center; gap: .25rem; }
+  .tag button { padding: 0 .25rem; line-height: 1.2; border: 0; font-size: var(--t-sm); color: var(--ink-2); }
+  .pill {
+    --c: var(--ink-2);
+    display: inline-block; padding: .05rem .5rem; border-radius: 999px;
+    font-size: var(--t-xs); font-weight: 600; letter-spacing: .03em; color: var(--c);
+    background: color-mix(in srgb, var(--c) 13%, transparent);
+  }
+  .pill[data-status="done"] { --c: var(--ok); }
+  .pill[data-status="pending"] { --c: var(--warn); }
+  .pill[data-status="running"] { --c: var(--run); }
+  .pill[data-status="failed"] { --c: var(--bad); }
+  .empty { padding: 2rem 0; color: var(--ink-2); }
+  .more { align-self: flex-start; }
+
+  /* One note */
+  .back { font-size: var(--t-sm); }
+  .note-view { display: flex; flex-direction: column; gap: .75rem; }
+  .note-view .text { font-size: var(--t-lead); line-height: 1.4; }
+  .stamp { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; font: var(--t-xs)/1.4 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  audio { width: 100%; height: 2.25rem; accent-color: var(--accent); }
+  .tags { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; font-size: var(--t-sm); color: var(--ink-2); }
+  .tags form { flex: 0 1 8rem; }
+  .tags input { padding: .2rem .5rem; font-size: var(--t-xs); }
+  .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .4rem 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); font-size: var(--t-sm); }
+  .facts dt { font-size: var(--t-xs); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); padding-top: .1rem; }
+  .facts dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .error { color: var(--bad); }
+  .reply { display: flex; flex-direction: column; gap: .5rem; padding: .875rem 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+  .reply header { display: flex; justify-content: space-between; gap: 1rem; padding: 0; margin: 0; border: 0; font-size: var(--t-xs); color: var(--ink-2); }
+  .reply header strong { font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+  .reply .text { font: var(--t-base)/1.55 var(--sans); }
+  .reply header span { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .calls { display: flex; flex-direction: column; gap: .5rem; }
+  details { border: 1px solid var(--rule); border-radius: var(--radius); }
+  summary { padding: .5rem .75rem; cursor: pointer; font: var(--t-sm) var(--mono); }
+  summary.bad { color: var(--bad); }
+  pre { margin: 0; padding: .75rem; overflow-x: auto; border-top: 1px solid var(--rule); font: var(--t-xs)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .actions { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+  form.edit { display: flex; flex-direction: column; gap: .75rem; }
+  form.edit textarea { font: var(--t-lead)/1.4 var(--serif); }
+  form.edit .row { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+  form.edit label { display: flex; align-items: center; gap: .4rem; margin-right: auto; font-size: var(--t-sm); color: var(--ink-2); }
+  form.edit input[type=checkbox] { width: auto; }
+
+  /* Status and config */
+  .label { font-size: var(--t-xs); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); }
+  section.block { display: flex; flex-direction: column; gap: .625rem; }
+  .counts { display: flex; flex-wrap: wrap; gap: .75rem 2.5rem; }
+  a.count { display: flex; flex-direction: column; gap: .25rem; color: var(--ink); text-decoration: none; }
+  a.count b { font: 500 2rem/1 var(--serif); font-variant-numeric: tabular-nums; }
+  a.count:hover b { color: var(--accent); }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+  th { font-size: var(--t-xs); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); }
+  th, td { padding: .4rem 1.25rem .4rem 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+  td:last-child, th:last-child { padding-right: 0; }
+  td { overflow-wrap: anywhere; }
+  .muted { color: var(--ink-2); }
+  form.config { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; }
+  form.config textarea { font: var(--t-sm)/1.55 var(--mono); }
+  .path { font: var(--t-xs) var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+
+  /* Login */
+  form.login { display: flex; flex-direction: column; align-items: flex-start; gap: .75rem; max-width: 20rem; }
+  form.login label { display: flex; flex-direction: column; gap: .3rem; width: 100%; font-size: var(--t-sm); color: var(--ink-2); }
 </style>
 </head>
 <body>
 <header>
-  <h1><a href="#/">Riverbed</a></h1>
-  <a href="#/status">Status</a>
-  <a href="#/config">Config</a>
+  <a class="brand" href="#/">Riverbed</a>
+  <nav aria-label="Main">
+    <a href="#/" data-section="notes">Notes</a>
+    <a href="#/status" data-section="status">Status</a>
+    <a href="#/config" data-section="config">Config</a>
+  </nav>
   <span class="spacer"></span>
-  <button id="logout" hidden>Log out</button>
+  <button id="logout" class="quiet" hidden>Log out</button>
 </header>
 <main id="main"></main>
 
@@ -96,18 +259,32 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-const when = (s) => new Date(s).toLocaleString();
+const dateTime = (s) => new Date(s).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const clock = (s) => new Date(s).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+const shortDate = (s) => new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+function dayLabel(s) {
+  const d = new Date(s);
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const days = Math.round((start(new Date()) - start(d)) / 864e5);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: sameYear ? undefined : "numeric" });
+}
+
+const pill = (status) => h("span", { class: "pill", "data-status": status }, status);
 
 function fail(err) {
   if (err instanceof AuthError) return login();
-  show(h("p", { class: "failed" }, err.message));
+  show(h("p", { class: "error" }, err.message));
 }
 
 function login(message) {
   logoutButton.hidden = true;
-  const input = h("input", { type: "password", name: "password", autofocus: true, autocomplete: "current-password" });
-  const error = h("p", { class: "failed" }, message);
+  const input = h("input", { id: "password", type: "password", name: "password", autofocus: true, autocomplete: "current-password" });
   show(h("form", {
+    class: "login",
     onsubmit: async (e) => {
       e.preventDefault();
       try {
@@ -117,7 +294,8 @@ function login(message) {
         login(err.message);
       }
     },
-  }, h("label", {}, "Password ", input), " ", h("button", {}, "Log in"), error));
+  }, h("label", { for: "password" }, "Password", input), h("button", { class: "primary" }, "Log in"),
+    message ? h("p", { class: "error" }, message) : null));
 }
 
 logoutButton.addEventListener("click", async () => {
@@ -129,108 +307,123 @@ logoutButton.addEventListener("click", async () => {
 // Notes list.
 
 async function list(params) {
+  const searching = Boolean(params.get("q"));
+
+  const area = h("textarea", { id: "compose", rows: 2, placeholder: "Add a note", "aria-label": "Add a note" });
+  const compose = h("form", { class: "compose", onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      await api("notes", { method: "POST", body: { text: area.value } });
+      route();
+    } catch (err) { fail(err); }
+  } }, area, h("div", { class: "row" },
+    h("span", { class: "hint" }, "Typed notes are routed like spoken ones."),
+    h("button", { class: "primary" }, "Add note")));
+
+  const select = (name, label, values) => h("select", { id: name, name, "aria-label": label },
+    h("option", { value: "" }, label),
+    values.map(([v, text]) => h("option", { value: v, selected: params.get(name) === v }, text)));
   const filters = h("form", { class: "filters", onsubmit: (e) => {
     e.preventDefault();
     const q = new URLSearchParams();
     for (const [k, v] of new FormData(e.target)) if (v) q.set(k, v);
     location.hash = "#/?" + q;
-  } });
-
-  const field = (name, options) => {
-    const sel = h("select", { name }, h("option", { value: "" }, options.label),
-      options.values.map(([v, text]) => h("option", { value: v, selected: params.get(name) === v }, text)));
-    return sel;
-  };
-  filters.append(
-    h("input", { type: "search", name: "q", placeholder: "Search", value: params.get("q") || "" }),
-    field("status", { label: "any status", values: ["pending", "running", "done", "failed"].map((s) => [s, s]) }),
-    field("route", { label: "any route", values: [status.router.default, ...status.router.rules.map((r) => r.agent)]
-      .filter((v, i, a) => a.indexOf(v) === i).map((r) => [r, r]) }),
-    field("since_days", { label: "any time", values: [["1", "past day"], ["7", "past week"], ["30", "past month"]] }),
-    h("input", { type: "text", name: "tag", placeholder: "tag", size: 8, value: params.get("tag") || "" }),
-    h("button", {}, "Search"),
-  );
+  } },
+    h("input", { id: "q", class: "wide", type: "search", name: "q", placeholder: "Search by wording or meaning", "aria-label": "Search", value: params.get("q") || "" }),
+    select("status", "Any status", ["pending", "running", "done", "failed"].map((s) => [s, s])),
+    select("route", "Any route", [status.router.default, ...status.router.rules.map((r) => r.agent)]
+      .filter((v, i, a) => a.indexOf(v) === i).map((r) => [r, r])),
+    select("since_days", "Any time", [["1", "Past day"], ["7", "Past week"], ["30", "Past month"]]),
+    h("input", { id: "tag", type: "text", name: "tag", placeholder: "Tag", "aria-label": "Tag", value: params.get("tag") || "" }),
+    h("button", { class: "primary" }, "Search"));
 
   const limit = Number(params.get("limit")) || 20;
   const q = new URLSearchParams(params);
   q.set("limit", limit);
   const notes = await api("notes?" + q);
 
-  const results = h("div", {}, notes.length ? notes.map(summary) : h("p", {}, "No notes."));
-  if (notes.length === limit) {
-    const more = new URLSearchParams(params);
-    more.set("limit", limit + 20);
-    results.append(h("p", {}, h("a", { href: "#/?" + more }, "Show more")));
+  const groups = [];
+  for (const n of notes) {
+    // Search results are ranked, so grouping them by day would reorder them.
+    const label = searching ? "" : dayLabel(n.recorded_at);
+    if (!groups.length || groups.at(-1).label !== label) groups.push({ label, notes: [] });
+    groups.at(-1).notes.push(n);
   }
-  const area = h("textarea", { rows: 2, placeholder: "Add a note" });
-  const add = h("form", { onsubmit: async (e) => {
-    e.preventDefault();
-    try {
-      await api("notes", { method: "POST", body: { text: area.value } });
-      route();
-    } catch (err) { fail(err); }
-  } }, area, h("button", {}, "Add"));
-  show(add, filters, results);
+
+  const results = notes.length
+    ? groups.map((g) => h("section", { class: "day" }, g.label ? h("h2", {}, g.label) : null,
+        h("ul", { class: "notes" }, g.notes.map((n) => h("li", {}, summary(n, searching))))))
+    : h("p", { class: "empty" }, "No notes match.");
+  const more = notes.length === limit
+    ? h("a", { class: "more", href: "#/?" + new URLSearchParams({ ...Object.fromEntries(params), limit: limit + 20 }) }, "Show more")
+    : null;
+  show(compose, filters, results, more);
 }
 
-function summary(n) {
-  const meta = [when(n.recorded_at)];
-  if (n.route) meta.push(n.route);
-  if (n.status !== "done") meta.push(n.status);
-  return h("article", {},
-    h("div", { class: n.status === "failed" ? "meta failed" : "meta" }, meta.join(" · "), " ",
-      n.tags.map((t) => h("span", { class: "tag" }, "#" + t))),
-    h("div", { class: "text" }, h("a", { href: "#/note/" + n.id }, n.text || "(no transcription)")));
+function summary(n, withDate) {
+  const meta = [];
+  if (n.status !== "done") meta.push(pill(n.status));
+  // The default route is on nearly every note, so naming it adds noise.
+  if (n.route && n.route !== status.router.default) meta.push(h("span", {}, n.route));
+  for (const t of n.tags) meta.push(h("span", { class: "tag" }, "#" + t));
+  return h("a", { class: "note", href: "#/note/" + n.id },
+    h("span", { class: "time" }, withDate ? h("span", {}, shortDate(n.recorded_at)) : null, h("span", {}, clock(n.recorded_at))),
+    h("span", {},
+      h("div", { class: "text" }, n.text || "(no transcription)"),
+      meta.length ? h("div", { class: "meta" }, meta) : null));
 }
 
 // One note.
 
 async function detail(id) {
   const n = await api("notes/" + id);
-  const back = h("p", {}, h("a", { href: "#/" }, "← All notes"));
 
-  const rows = [
-    ["Recorded", when(n.recorded_at)],
-    ["Received", when(n.received_at)],
+  const facts = [
+    ["Recorded", dateTime(n.recorded_at)],
+    ["Received", dateTime(n.received_at)],
     ["Device", n.client],
-    ["Status", n.status + (n.attempts ? ` (${n.attempts} attempt${n.attempts === 1 ? "" : "s"})` : "")],
   ];
-  if (n.route) rows.push(["Route", n.route + (n.route_reason ? ` — ${n.route_reason}` : "")]);
-  if (n.prompt && n.prompt !== n.text) rows.push(["Prompt", n.prompt]);
-  if (n.error) rows.push(["Error", h("span", { class: "failed" }, n.error)]);
+  if (n.attempts) facts.push(["Attempts", String(n.attempts)]);
+  if (n.route) facts.push(["Route", n.route + (n.route_reason ? ` — ${n.route_reason}` : "")]);
+  if (n.prompt && n.prompt !== n.text) facts.push(["Prompt", n.prompt]);
+  if (n.error) facts.push(["Error", h("span", { class: "error" }, n.error)]);
 
-  const tagInput = h("input", { type: "text", placeholder: "add tag", size: 10 });
-  const tags = h("p", {}, n.tags.map((t) => h("span", { class: "tag" }, "#" + t, " ",
-    h("button", { title: "Remove tag", onclick: () => act(api(`notes/${id}/tags/${encodeURIComponent(t)}`, { method: "DELETE" })) }, "×"))),
-    h("form", { style: "display:inline", onsubmit: (e) => {
+  const tagInput = h("input", { id: "tag-input", type: "text", placeholder: "Add tag", "aria-label": "Add tag" });
+  const tags = h("div", { class: "tags" },
+    n.tags.map((t) => h("span", { class: "tag" }, "#" + t,
+      h("button", { title: "Remove tag", "aria-label": "Remove tag " + t,
+        onclick: () => act(api(`notes/${id}/tags/${encodeURIComponent(t)}`, { method: "DELETE" })) }, "×"))),
+    h("form", { onsubmit: (e) => {
       e.preventDefault();
       if (tagInput.value.trim()) act(api(`notes/${id}/tags`, { method: "POST", body: { tag: tagInput.value } }));
     } }, tagInput));
 
   const textBox = h("div", { class: "text" }, n.text || "(no transcription)");
   const editButton = h("button", { onclick: () => {
-    const area = h("textarea", { rows: 6 }); area.value = n.text;
-    const replay = h("input", { type: "checkbox" });
-    const form = h("form", { onsubmit: (e) => {
+    const area = h("textarea", { id: "edit-text", rows: 5, "aria-label": "Note text" });
+    area.value = n.text;
+    const replay = h("input", { id: "edit-replay", type: "checkbox" });
+    const form = h("form", { class: "edit", onsubmit: (e) => {
       e.preventDefault();
       if (replay.checked && !confirm("Run the edited note through routing and its agent again? Agent actions may repeat.")) return;
       act(api("notes/" + id, { method: "PUT", body: { text: area.value, replay: replay.checked } }));
-    } }, area, h("label", {}, replay, " Replay after saving"), " ",
-      h("button", {}, "Save"), " ", h("button", { type: "button", onclick: route }, "Cancel"));
+    } }, area, h("div", { class: "row" },
+      h("label", { for: "edit-replay" }, replay, "Replay after saving"),
+      h("button", { type: "button", onclick: route }, "Cancel"),
+      h("button", { class: "primary" }, "Save")));
     textBox.replaceWith(form);
     editButton.hidden = true;
     area.focus();
   } }, "Edit");
 
-  const actions = h("p", {});
-  actions.append(editButton, " ");
+  const actions = h("div", { class: "actions" }, editButton);
   if (n.status === "failed" || n.status === "done") {
     actions.append(h("button", { onclick: () => {
       if (n.status === "done" && !confirm("Run this note through routing and its agent again? Agent actions may repeat.")) return;
       act(api(`notes/${id}/replay`, { method: "POST" }));
-    } }, n.status === "failed" ? "Retry" : "Replay"), " ");
+    } }, n.status === "failed" ? "Retry" : "Replay"));
   }
-  actions.append(h("button", { onclick: async () => {
+  actions.append(h("button", { class: "danger", onclick: async () => {
     if (!confirm("Delete this note, its audio and its replies?")) return;
     try { await api("notes/" + id, { method: "DELETE" }); location.hash = "#/"; } catch (err) { fail(err); }
   } }, "Delete"));
@@ -238,18 +431,21 @@ async function detail(id) {
   const audio = h("audio", { controls: true, preload: "metadata", src: `/api/notes/${id}/audio` });
   audio.addEventListener("error", () => audio.remove());
 
-  show(back,
-    textBox,
+  show(
+    h("a", { class: "back", href: "#/" }, "← All notes"),
+    h("div", { class: "note-view" },
+      textBox,
+      h("div", { class: "stamp" }, dateTime(n.recorded_at), n.status !== "done" ? pill(n.status) : null)),
     n.audio_bytes ? audio : null,
     tags,
-    h("dl", {}, rows.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])),
-    n.responses.map((r) => h("section", {}, h("h3", {}, r.agent),
-      h("div", { class: "text" }, r.text),
-      h("div", { class: "meta" }, `${r.input_tokens} tokens in, ${r.output_tokens} out`))),
-    n.tool_calls.length ? h("h3", {}, "Tool calls") : null,
-    n.tool_calls.map((c) => h("details", {},
-      h("summary", { class: c.is_error ? "failed" : "" }, `${c.server}.${c.tool}`, c.is_error ? " (error)" : ""),
-      h("pre", {}, c.arguments || ""), h("pre", {}, c.result || ""))),
+    n.responses.map((r) => h("section", { class: "reply" },
+      h("header", {}, h("strong", {}, r.agent), h("span", {}, `${r.input_tokens} in · ${r.output_tokens} out`)),
+      h("div", { class: "text" }, r.text))),
+    n.tool_calls.length ? h("section", { class: "block" }, h("h2", { class: "label" }, "Tool calls"),
+      h("div", { class: "calls" }, n.tool_calls.map((c) => h("details", {},
+        h("summary", { class: c.is_error ? "bad" : "" }, `${c.server}.${c.tool}`, c.is_error ? " (error)" : ""),
+        c.arguments ? h("pre", {}, c.arguments) : null, c.result ? h("pre", {}, c.result) : null)))) : null,
+    h("dl", { class: "facts" }, facts.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])),
     actions);
 }
 
@@ -261,53 +457,54 @@ async function act(promise) {
 
 async function config() {
   const c = await api("config");
-  if (!c.editable) return show(h("h2", {}, "Configuration"), h("p", {}, c.reason));
-  const area = h("textarea", { class: "code", rows: 30, spellcheck: false });
+  if (!c.editable) return show(h("section", { class: "block" }, h("h2", { class: "label" }, "Configuration"), h("p", {}, c.reason)));
+  const area = h("textarea", { id: "config-text", rows: 28, spellcheck: false, "aria-label": "riverbed.toml" });
   area.value = c.text;
   const message = h("p", {});
-  show(h("h2", {}, "Configuration"), h("p", { class: "meta" }, c.path),
-    h("form", { onsubmit: async (e) => {
+  show(h("section", { class: "block" }, h("h2", { class: "label" }, "Configuration"), h("p", { class: "path" }, c.path)),
+    h("form", { class: "config", onsubmit: async (e) => {
       e.preventDefault();
       message.className = "";
       try {
         await api("config", { method: "PUT", body: { text: area.value } });
         message.textContent = "Saved. Restart Riverbed to apply it.";
       } catch (err) {
-        message.className = "failed";
+        message.className = "error";
         message.textContent = err.message;
       }
-    } }, area, h("button", {}, "Save")), message,
-    h("p", { class: "meta" }, "Values such as ${VAR} are read from the environment when Riverbed starts, so keep secrets there."));
+    } }, area, h("button", { class: "primary" }, "Save"), message),
+    h("p", { class: "muted" }, "Values such as ${VAR} are read from the environment when Riverbed starts, so keep secrets there."));
 }
 
 // Status.
 
 function table(head, rows) {
-  return h("table", {}, h("tr", {}, head.map((t) => h("th", {}, t))),
-    rows.map((r) => h("tr", {}, r.map((c) => h("td", {}, c)))));
+  return h("div", { class: "scroll" }, h("table", {}, h("tr", {}, head.map((t) => h("th", {}, t))),
+    rows.map((r) => h("tr", {}, r.map((c) => h("td", {}, c))))));
 }
+
+const block = (title, ...content) => h("section", { class: "block" }, h("h2", { class: "label" }, title), content);
 
 function showStatus() {
   const s = status;
-  const counts = ["pending", "running", "done", "failed"].map((k) => [k, String(s.counts[k] || 0)]);
+  const counts = ["pending", "running", "done", "failed"].map((k) =>
+    h("a", { class: "count", href: "#/?status=" + k }, h("b", {}, String(s.counts[k] || 0)), pill(k)));
   show(
-    h("h2", {}, "Notes"), table(["Status", "Count"], counts),
-    h("h2", {}, "System"), h("dl", {},
+    block("Notes", h("div", { class: "counts" }, counts)),
+    block("System", h("dl", { class: "facts", style: "border:0;padding:0" },
       h("dt", {}, "Version"), h("dd", {}, s.version),
       h("dt", {}, "Embedding"), h("dd", {}, s.embedding.enabled ? `${s.embedding.kind} ${s.embedding.model}` : "off (keyword search only)"),
       h("dt", {}, "Audio"), h("dd", {}, s.audio_retained ? "kept" : "discarded"),
       h("dt", {}, "MCP server"), h("dd", {}, s.mcp_serve ? "on" : "off"),
-      h("dt", {}, "Login"), h("dd", {}, s.auth ? "password" : "none")),
-    h("h2", {}, "Routing"),
-    h("p", {}, `Default: ${s.router.default}` + (s.router.classifier ? `. Classifier: ${s.router.classifier}.` : ".")),
-    s.router.rules.length ? table(["Match", "Agent", "Strip", "Tags"],
-      s.router.rules.map((r) => [r.match, r.agent, r.strip ? "yes" : "", r.tags.join(", ")])) : null,
-    h("h2", {}, "Agents"),
-    s.agents.length ? table(["Name", "Kind", "Model"], s.agents.map((a) => [a.name, a.kind, a.model])) : h("p", {}, "None."),
-    h("h2", {}, "MCP servers"),
-    s.mcp.length ? table(["Name", "URL", "Transport", "Auth", "Agents"],
-      s.mcp.map((m) => [m.name, m.url, m.transport, m.auth, m.agents.join(", ") || "all"])) : h("p", {}, "None."),
-    h("p", { class: "meta" }, "Configuration is read-only here. Edit riverbed.toml and restart."));
+      h("dt", {}, "Login"), h("dd", {}, s.auth ? "password" : "none"))),
+    block("Routing",
+      h("p", {}, `Default route ${s.router.default}` + (s.router.classifier ? `, classifier ${s.router.classifier}.` : ".")),
+      s.router.rules.length ? table(["Match", "Agent", "Strip", "Tags"],
+        s.router.rules.map((r) => [r.match, r.agent, r.strip ? "yes" : "", r.tags.join(", ")])) : null),
+    block("Agents", s.agents.length ? table(["Name", "Kind", "Model"], s.agents.map((a) => [a.name, a.kind, a.model])) : h("p", { class: "muted" }, "None configured.")),
+    block("MCP servers", s.mcp.length ? table(["Name", "URL", "Transport", "Auth", "Agents"],
+      s.mcp.map((m) => [m.name, m.url, m.transport, m.auth, m.agents.join(", ") || "all"])) : h("p", { class: "muted" }, "None configured.")),
+    h("p", { class: "muted" }, "Settings are read-only here. Edit them on the Config page and restart."));
 }
 
 // Routing.
@@ -319,6 +516,11 @@ async function route() {
     logoutButton.hidden = !status.auth;
     const [path, query = ""] = location.hash.slice(1).split("?");
     const params = new URLSearchParams(query);
+    const section = path === "/status" ? "status" : path === "/config" ? "config" : "notes";
+    for (const a of document.querySelectorAll("nav a")) {
+      if (a.dataset.section === section) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    }
     const note = path.match(/^\/note\/(\d+)$/);
     if (note) await detail(note[1]);
     else if (path === "/status") showStatus();
