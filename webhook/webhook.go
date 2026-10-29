@@ -139,7 +139,7 @@ func cutPrefixFold(s, prefix string) (string, bool) {
 // parse reads the multipart body into a recording. Parts are streamed, so a
 // large audio payload is never buffered twice.
 func (h *Handler) parse(r *http.Request) (store.NewRecording, error) {
-	var rec store.NewRecording
+	rec := store.NewRecording{Source: store.SourceIndex}
 
 	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
@@ -201,6 +201,9 @@ func (h *Handler) parse(r *http.Request) (store.NewRecording, error) {
 				return rec, fmt.Errorf("reading transcription: %w", err)
 			}
 			rec.Transcription = strings.TrimSpace(text)
+			if rec.Transcription != "" {
+				rec.TranscribedBy = store.SourceIndex
+			}
 		case "recordedAt":
 			recordedAt, err = readField(part)
 			if err != nil {

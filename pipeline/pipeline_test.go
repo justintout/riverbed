@@ -126,6 +126,7 @@ func runOnce(t *testing.T, p *Pipeline, s *store.Store, id int64) store.Recordin
 func insert(t *testing.T, s *store.Store, text string) int64 {
 	t.Helper()
 	id, err := s.Insert(t.Context(), store.NewRecording{
+		Source: store.SourceIndex,
 		Client: "ring", RecordedAt: time.Now(), Transcription: text,
 	})
 	if err != nil {

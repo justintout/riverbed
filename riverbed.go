@@ -18,6 +18,7 @@ import (
 	"github.com/justintout/riverbed/route"
 	"github.com/justintout/riverbed/store"
 	"github.com/justintout/riverbed/tool"
+	"github.com/justintout/riverbed/transcribe"
 	"github.com/justintout/riverbed/ui"
 	"github.com/justintout/riverbed/webhook"
 )
@@ -247,15 +248,25 @@ func (a *App) routes(opts OpenOptions, embedder embedding.Embedder) error {
 	}
 
 	if cfg.UI.Enabled {
+		var transcriber ui.Transcriber
+		if cfg.Transcription.Enabled() {
+			t, err := transcribe.New(cfg.Transcription)
+			if err != nil {
+				return err
+			}
+			transcriber = t
+			a.log.Info("voice input enabled", "model", cfg.Transcription.Model)
+		}
 		web, err := ui.New(ui.Options{
-			Store:      a.Store,
-			Embedder:   embedder,
-			Config:     cfg,
-			Version:    opts.Version,
-			Notify:     a.pipeline.Notify,
-			Embed:      a.pipeline.Embed,
-			ConfigPath: opts.ConfigPath,
-			Logger:     a.log,
+			Store:       a.Store,
+			Embedder:    embedder,
+			Config:      cfg,
+			Version:     opts.Version,
+			Notify:      a.pipeline.Notify,
+			Embed:       a.pipeline.Embed,
+			Transcriber: transcriber,
+			ConfigPath:  opts.ConfigPath,
+			Logger:      a.log,
 		})
 		if err != nil {
 			return err

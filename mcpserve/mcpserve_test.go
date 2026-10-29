@@ -90,6 +90,7 @@ func callText(t *testing.T, session *mcp.ClientSession, name string, args map[st
 func insert(t *testing.T, s *store.Store, text string, at time.Time) int64 {
 	t.Helper()
 	id, err := s.Insert(t.Context(), store.NewRecording{
+		Source: store.SourceIndex,
 		Client: "ring", RecordedAt: at, Transcription: text,
 	})
 	if err != nil {

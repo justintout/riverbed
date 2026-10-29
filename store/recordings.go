@@ -26,6 +26,8 @@ var ErrNotFound = errors.New("store: not found")
 type Recording struct {
 	ID            int64
 	Client        string
+	Source        string
+	TranscribedBy string
 	RecordedAt    time.Time
 	ReceivedAt    time.Time
 	Transcription string
@@ -39,9 +41,21 @@ type Recording struct {
 	Error         string
 }
 
+// Sources Riverbed receives notes through. Source is free text so that a new
+// receiver needs no migration.
+const (
+	SourceIndex = "index"
+	SourceWeb   = "web"
+)
+
 // NewRecording is an inbound recording, before storage.
 type NewRecording struct {
-	Client        string
+	Client string
+	// Source is the channel the note arrived through, such as SourceIndex.
+	Source string
+	// TranscribedBy names what produced Transcription: the device, a
+	// transcription model, or nothing for typed text.
+	TranscribedBy string
 	RecordedAt    time.Time
 	Transcription string
 	AudioMIME     string
@@ -57,6 +71,9 @@ func (s *Store) Insert(ctx context.Context, r NewRecording) (int64, error) {
 	}
 	defer release()
 
+	if r.Source == "" {
+		return 0, errors.New("store: insert recording: source is required")
+	}
 	status := StatusPending
 	if r.Transcription == "" {
 		status = StatusDone
@@ -69,11 +86,13 @@ func (s *Store) Insert(ctx context.Context, r NewRecording) (int64, error) {
 	}
 	err = func() error {
 		if err := sqlitex.Execute(conn,
-			`INSERT INTO recordings (client, recorded_at, received_at, transcription, audio_mime, audio_bytes, status)
-			 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+			`INSERT INTO recordings (client, recorded_at, received_at, transcription, audio_mime, audio_bytes, status,
+			                         source, transcribed_by)
+			 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
 			&sqlitex.ExecOptions{Args: []any{
 				r.Client, millis(r.RecordedAt), millis(time.Now()),
 				nullable(r.Transcription), nullable(r.AudioMIME), int64(len(r.Audio)), status,
+				r.Source, nullable(r.TranscribedBy),
 			}}); err != nil {
 			return err
 		}
@@ -565,7 +584,7 @@ func (s *Store) exec(ctx context.Context, query string, args ...any) error {
 }
 
 const recordingColumns = `id, client, recorded_at, received_at, transcription, audio_mime,
-	audio_bytes, status, attempts, route, route_reason, prompt, error`
+	audio_bytes, status, attempts, route, route_reason, prompt, error, source, transcribed_by`
 
 func scanRecording(stmt *sqlite.Stmt) Recording {
 	return Recording{
@@ -582,6 +601,8 @@ func scanRecording(stmt *sqlite.Stmt) Recording {
 		RouteReason:   stmt.ColumnText(10),
 		Prompt:        stmt.ColumnText(11),
 		Error:         stmt.ColumnText(12),
+		Source:        stmt.ColumnText(13),
+		TranscribedBy: stmt.ColumnText(14),
 	}
 }
 

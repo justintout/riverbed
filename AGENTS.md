@@ -50,6 +50,7 @@ temporary directories, so they need no setup and no network, apart from
 | `mcpserve/` | Riverbed's own MCP server. |
 | `ui/` | The web interface: a JSON API and one embedded page. |
 | `pipeline/` | The worker that claims, routes, embeds and runs. |
+| `transcribe/` | Speech to text through an OpenAI-compatible endpoint. |
 
 ## Conventions
 
