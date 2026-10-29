@@ -33,6 +33,7 @@ func open(t *testing.T, dim int) *Store {
 func insert(t *testing.T, s *Store, text string, at time.Time) int64 {
 	t.Helper()
 	id, err := s.Insert(t.Context(), NewRecording{
+		Source:        SourceIndex,
 		Client:        "ring",
 		RecordedAt:    at,
 		Transcription: text,
@@ -60,6 +61,7 @@ func TestInsertAndGet(t *testing.T) {
 	s := open(t, 0)
 	recorded := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
 	id, err := s.Insert(t.Context(), NewRecording{
+		Source:        SourceIndex,
 		Client:        "ring",
 		RecordedAt:    recorded,
 		Transcription: "turn on the kitchen lights",
@@ -98,7 +100,7 @@ func TestInsertAndGet(t *testing.T) {
 
 func TestRecordingWithoutTranscriptionIsDone(t *testing.T) {
 	s := open(t, 0)
-	id, err := s.Insert(t.Context(), NewRecording{Client: "ring", RecordedAt: time.Now()})
+	id, err := s.Insert(t.Context(), NewRecording{Source: SourceIndex, Client: "ring", RecordedAt: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,7 +657,7 @@ func TestClientAndTokenAreIndependent(t *testing.T) {
 func TestDeleteRemovesEverythingForARecording(t *testing.T) {
 	s := open(t, 0)
 	ctx := t.Context()
-	id, err := s.Insert(ctx, NewRecording{Client: "d", RecordedAt: time.Now(), Transcription: "remove me", AudioMIME: "audio/wav", Audio: []byte("x")})
+	id, err := s.Insert(ctx, NewRecording{Source: SourceIndex, Client: "d", RecordedAt: time.Now(), Transcription: "remove me", AudioMIME: "audio/wav", Audio: []byte("x")})
 	if err != nil {
 		t.Fatal(err)
 	}

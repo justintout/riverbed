@@ -244,7 +244,10 @@ class AuthError extends Error {}
 
 async function api(path, opts = {}) {
   const init = { method: opts.method || "GET", headers: {} };
-  if (opts.body !== undefined) {
+  if (opts.audio) {
+    init.headers["Content-Type"] = opts.audio.type;
+    init.body = opts.audio;
+  } else if (opts.body !== undefined) {
     init.headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(opts.body);
   }
@@ -304,6 +307,31 @@ logoutButton.addEventListener("click", async () => {
   login();
 });
 
+// recorder returns a button that records a voice note and sends it to be
+// transcribed and stored.
+function recorder() {
+  let media = null;
+  const button = h("button", { type: "button", onclick: async () => {
+    if (media) return media.stop();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const chunks = [];
+      media = new MediaRecorder(stream);
+      media.addEventListener("dataavailable", (e) => chunks.push(e.data));
+      media.addEventListener("stop", async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        button.disabled = true;
+        button.textContent = "Transcribing";
+        const audio = new Blob(chunks, { type: media.mimeType });
+        await act(api("notes/voice", { method: "POST", audio }));
+      });
+      media.start();
+      button.textContent = "Stop";
+    } catch (err) { fail(err); }
+  } }, "Record");
+  return button;
+}
+
 // Notes list.
 
 async function list(params) {
@@ -318,7 +346,7 @@ async function list(params) {
     } catch (err) { fail(err); }
   } }, area, h("div", { class: "row" },
     h("span", { class: "hint" }, "Typed notes are routed like spoken ones."),
-    h("button", { class: "primary" }, "Add note")));
+    h("span", {}, status.voice_model && navigator.mediaDevices ? recorder() : null, " ", h("button", { class: "primary" }, "Add note"))));
 
   const select = (name, label, values) => h("select", { id: name, name, "aria-label": label },
     h("option", { value: "" }, label),
@@ -382,6 +410,7 @@ async function detail(id) {
     ["Recorded", dateTime(n.recorded_at)],
     ["Received", dateTime(n.received_at)],
     ["Device", n.client],
+    ["Source", n.source + (n.transcribed_by ? `, transcribed by ${n.transcribed_by}` : "")],
   ];
   if (n.attempts) facts.push(["Attempts", String(n.attempts)]);
   if (n.route) facts.push(["Route", n.route + (n.route_reason ? ` — ${n.route_reason}` : "")]);
@@ -495,6 +524,7 @@ function showStatus() {
       h("dt", {}, "Version"), h("dd", {}, s.version),
       h("dt", {}, "Embedding"), h("dd", {}, s.embedding.enabled ? `${s.embedding.kind} ${s.embedding.model}` : "off (keyword search only)"),
       h("dt", {}, "Audio"), h("dd", {}, s.audio_retained ? "kept" : "discarded"),
+      h("dt", {}, "Voice input"), h("dd", {}, s.voice_model || "off"),
       h("dt", {}, "MCP server"), h("dd", {}, s.mcp_serve ? "on" : "off"),
       h("dt", {}, "Login"), h("dd", {}, s.auth ? "password" : "none"))),
     block("Routing",

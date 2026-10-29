@@ -83,6 +83,7 @@ func TestNoPasswordLeavesTheAPIOpen(t *testing.T) {
 func TestManageANote(t *testing.T) {
 	h, s := newHandler(t, "")
 	id, err := s.Insert(t.Context(), store.NewRecording{
+		Source: store.SourceIndex,
 		Client: "device", RecordedAt: time.Now(), Transcription: "buy oat milk",
 	})
 	if err != nil {
@@ -169,6 +170,7 @@ func TestCreateAndEditNote(t *testing.T) {
 func TestAudioSupportsRanges(t *testing.T) {
 	h, s := newHandler(t, "")
 	id, err := s.Insert(t.Context(), store.NewRecording{
+		Source: store.SourceIndex,
 		Client: "device", RecordedAt: time.Now(), Transcription: "x",
 		AudioMIME: "audio/wav", Audio: []byte("0123456789"),
 	})

@@ -24,11 +24,14 @@ type Config struct {
 	Store     Store     `toml:"store"`
 	Audio     Audio     `toml:"audio"`
 	Embedding Embedding `toml:"embedding"`
-	MCPServe  MCPServe  `toml:"mcp_serve"`
-	UI        UI        `toml:"ui"`
-	Router    Router    `toml:"router"`
-	Agents    []Agent   `toml:"agent"`
-	MCP       []MCP     `toml:"mcp"`
+	// Transcription is the speech-to-text endpoint behind the web interface's
+	// voice input.
+	Transcription Transcription `toml:"transcription"`
+	MCPServe      MCPServe      `toml:"mcp_serve"`
+	UI            UI            `toml:"ui"`
+	Router        Router        `toml:"router"`
+	Agents        []Agent       `toml:"agent"`
+	MCP           []MCP         `toml:"mcp"`
 }
 
 // Server holds HTTP listener settings.
@@ -81,6 +84,18 @@ type Embedding struct {
 
 // Enabled reports whether embeddings, and therefore vector retrieval, are on.
 func (e Embedding) Enabled() bool { return e.Model != "" }
+
+// Transcription configures an OpenAI-compatible /v1/audio/transcriptions
+// endpoint. Voice input is enabled only when Model is set.
+type Transcription struct {
+	Model string `toml:"model"`
+	// BaseURL is the endpoint's /v1 URL. Empty means OpenAI.
+	BaseURL string `toml:"base_url"`
+	APIKey  string `toml:"api_key"`
+}
+
+// Enabled reports whether voice input is on.
+func (t Transcription) Enabled() bool { return t.Model != "" }
 
 // MCPServe configures the MCP server Riverbed exposes for its own journal.
 type MCPServe struct {

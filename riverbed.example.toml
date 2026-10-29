@@ -74,6 +74,14 @@ token = "${RIVERBED_MCP_TOKEN}"
 enabled = true
 password = "${RIVERBED_UI_PASSWORD}"
 
+# Naming a model adds a Record button to the web interface. The recording is
+# sent to an OpenAI-compatible /v1/audio/transcriptions endpoint and stored as
+# a note. Leave base_url unset to use OpenAI.
+# [transcription]
+# model = "whisper-1"
+# base_url = "http://localhost:8000/v1"
+# api_key = "${RIVERBED_TRANSCRIPTION_API_KEY}"
+
 # ---------------------------------------------------------------------------
 # Agents
 # ---------------------------------------------------------------------------

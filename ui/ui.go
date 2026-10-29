@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -48,9 +49,17 @@ type Options struct {
 	// Embed re-embeds one recording after its text changed. Nil when embedding
 	// is off.
 	Embed func(ctx context.Context, id int64) error
+	// Transcriber turns recorded audio into a note. Nil hides voice input.
+	Transcriber Transcriber
 	// ConfigPath is the file the configuration page edits. Empty disables it.
 	ConfigPath string
 	Logger     *slog.Logger
+}
+
+// Transcriber turns audio into text.
+type Transcriber interface {
+	Transcribe(ctx context.Context, audio io.Reader, contentType string) (string, error)
+	Model() string
 }
 
 // Handler serves the interface. Mount it at "GET /{$}" and "/api/".
@@ -79,6 +88,9 @@ func New(opts Options) (*Handler, error) {
 	h.mux.HandleFunc("GET /api/status", h.guard(h.status))
 	h.mux.HandleFunc("GET /api/notes", h.guard(h.list))
 	h.mux.HandleFunc("POST /api/notes", h.guard(h.create))
+	if opts.Transcriber != nil {
+		h.mux.HandleFunc("POST /api/notes/voice", h.guard(h.voice))
+	}
 	h.mux.HandleFunc("GET /api/notes/{id}", h.guard(h.get))
 	h.mux.HandleFunc("PUT /api/notes/{id}", h.guard(h.edit))
 	h.mux.HandleFunc("GET /api/notes/{id}/audio", h.guard(h.audio))
@@ -223,6 +235,8 @@ type toolCallJSON struct {
 type detailJSON struct {
 	noteJSON
 	Client      string         `json:"client"`
+	Source      string         `json:"source"`
+	Transcriber string         `json:"transcribed_by,omitempty"`
 	ReceivedAt  time.Time      `json:"received_at"`
 	RouteReason string         `json:"route_reason,omitempty"`
 	Prompt      string         `json:"prompt,omitempty"`
@@ -323,6 +337,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 	d := detailJSON{
 		noteJSON: note(rec, tags), Client: rec.Client, ReceivedAt: rec.ReceivedAt,
+		Source: rec.Source, Transcriber: rec.TranscribedBy,
 		RouteReason: rec.RouteReason, Prompt: rec.Prompt, Error: rec.Error,
 		Attempts: rec.Attempts, AudioBytes: rec.AudioBytes,
 		Responses: []responseJSON{}, ToolCalls: []toolCallJSON{},
@@ -385,8 +400,51 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := h.opts.Store.Insert(r.Context(), store.NewRecording{
-		Client: "web", RecordedAt: time.Now(), Transcription: text,
+		Client: "web", Source: store.SourceWeb, RecordedAt: time.Now(), Transcription: text,
 	})
+	if err != nil {
+		h.serverError(w, "create note", err)
+		return
+	}
+	h.notify()
+	w.WriteHeader(http.StatusCreated)
+	respond(w, map[string]int64{"id": id})
+}
+
+// voice stores a note recorded in the browser. The body is the audio itself,
+// with the recorder's media type. It is transcribed before it is stored, so a
+// note that fails to transcribe is not kept.
+func (h *Handler) voice(w http.ResponseWriter, r *http.Request) {
+	limit := h.opts.Config.Audio.MaxBytes
+	audio, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		fail(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("audio exceeds the %d byte limit", limit))
+		return
+	}
+	if len(audio) == 0 {
+		fail(w, http.StatusBadRequest, "audio is required")
+		return
+	}
+	contentType := r.Header.Get("Content-Type")
+	text, err := h.opts.Transcriber.Transcribe(r.Context(), bytes.NewReader(audio), contentType)
+	if err != nil {
+		h.log.Error("ui: transcribe", "error", err)
+		fail(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if text == "" {
+		fail(w, http.StatusUnprocessableEntity, "no speech was recognized")
+		return
+	}
+
+	rec := store.NewRecording{
+		Client: "web", Source: store.SourceWeb, TranscribedBy: h.opts.Transcriber.Model(),
+		RecordedAt: time.Now(), Transcription: text,
+	}
+	if h.opts.Config.Audio.Retain {
+		rec.Audio, rec.AudioMIME = audio, contentType
+	}
+	id, err := h.opts.Store.Insert(r.Context(), rec)
 	if err != nil {
 		h.serverError(w, "create note", err)
 		return
@@ -606,6 +664,7 @@ type statusJSON struct {
 	Auth      bool           `json:"auth"`
 	Counts    map[string]int `json:"counts"`
 	Embedding embeddingJSON  `json:"embedding"`
+	Voice     string         `json:"voice_model,omitempty"`
 	Audio     bool           `json:"audio_retained"`
 	MCPServe  bool           `json:"mcp_serve"`
 	Router    routerJSON     `json:"router"`
@@ -661,6 +720,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		Counts:    counts,
 		Embedding: embeddingJSON{Enabled: cfg.Embedding.Enabled(), Kind: cfg.Embedding.Kind, Model: cfg.Embedding.Model},
 		Audio:     cfg.Audio.Retain,
+		Voice:     cfg.Transcription.Model,
 		MCPServe:  cfg.MCPServe.Enabled,
 		Router:    routerJSON{Default: cfg.Router.Default, Classifier: cfg.Router.Classifier, Rules: []ruleJSON{}},
 		Agents:    []agentJSON{},

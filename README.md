@@ -388,6 +388,30 @@ enabled = true
 password = "${RIVERBED_UI_PASSWORD}"
 ```
 
+### Voice input
+
+Name a transcription model and the note list also shows a Record button. Riverbed
+sends the recording to an OpenAI-compatible `/v1/audio/transcriptions` endpoint,
+stores the text as a new note, and keeps the audio when `audio.retain` is set. The
+note is routed like a spoken one. Without a model the button does not appear.
+
+```toml
+[transcription]
+model = "whisper-1"
+# Leave base_url unset to use OpenAI. Any compatible server works, such as a
+# whisper.cpp server, Speaches or Groq.
+base_url = "http://localhost:8000/v1"
+api_key = "${RIVERBED_TRANSCRIPTION_API_KEY}"
+```
+
+Browsers allow the microphone only on HTTPS pages and on `localhost`, so the button
+also stays hidden on a plain HTTP page.
+
+Each note records its source and what transcribed it. The source is `index` for the
+device webhook and `web` for the web interface. The transcriber is `index` when the
+device sent the text, the model name when Riverbed transcribed it, and empty for a
+typed note. A note's page shows both.
+
 With no `password`, anyone who can reach the listener can read and delete notes.
 Riverbed logs a warning at startup in that case. Set one when the listener is
 reachable beyond a private network. A login lasts 30 days and ends when Riverbed
@@ -489,6 +513,7 @@ You can also use Riverbed as a library. Each package is usable on its own.
 | `tool` | The MCP client registry, with token and OAuth authentication |
 | `mcpserve` | The stored transcriptions, as an MCP server |
 | `pipeline` | Claim, route, embed, run and store |
+| `transcribe` | Audio to text through an OpenAI-compatible endpoint |
 
 ## How Riverbed processes a recording
 
