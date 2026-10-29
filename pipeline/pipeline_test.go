@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -133,6 +135,66 @@ func insert(t *testing.T, s *store.Store, text string) int64 {
 		t.Fatal(err)
 	}
 	return id
+}
+
+type fakeTranscriber struct{ text string }
+
+func (f fakeTranscriber) Transcribe(_ context.Context, audio io.Reader, _ string) (string, error) {
+	_, err := io.Copy(io.Discard, audio)
+	return f.text, err
+}
+
+func (fakeTranscriber) Model() string { return "fake-whisper" }
+
+func TestAudioOnlyRecordingIsTranscribedThenRouted(t *testing.T) {
+	s := openStore(t, 0)
+	a := &fakeAgent{name: "shelley", reply: "ok"}
+	p, err := New(Options{
+		Store: s,
+		Router: newRouter(t, config.Router{
+			Default: config.JournalAgent,
+			Rules:   []config.Rule{{Prefix: "hey shelley", Agent: "shelley", Strip: true}},
+		}),
+		Agents:      map[string]agent.Agent{"shelley": a},
+		Transcriber: fakeTranscriber{text: "hey shelley feed the cat"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.Insert(t.Context(), store.NewRecording{
+		Source: store.SourceIndex, Client: "ring", RecordedAt: time.Now(),
+		AudioMIME: "audio/mp4", Audio: []byte("m4a"), Transcribe: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := runOnce(t, p, s, id)
+
+	if rec.Status != store.StatusDone || rec.Transcription != "hey shelley feed the cat" || rec.TranscribedBy != "fake-whisper" {
+		t.Fatalf("an audio-only recording should be transcribed and finish, got %q %q by %q: %s",
+			rec.Status, rec.Transcription, rec.TranscribedBy, rec.Error)
+	}
+	if rec.Route != "shelley" {
+		t.Errorf("the transcription should be routed, got route %q", rec.Route)
+	}
+}
+
+func TestAudioOnlyRecordingFailsWithoutATranscriber(t *testing.T) {
+	s := openStore(t, 0)
+	p, err := New(Options{Store: s, Router: newRouter(t, config.Router{Default: config.JournalAgent}), MaxAttempts: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.Insert(t.Context(), store.NewRecording{
+		Source: store.SourceIndex, Client: "ring", RecordedAt: time.Now(),
+		AudioMIME: "audio/mp4", Audio: []byte("m4a"), Transcribe: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := runOnce(t, p, s, id); rec.Status != store.StatusFailed || !strings.Contains(rec.Error, "no transcription model") {
+		t.Fatalf("a recording queued for transcription without a model should fail and say why, got %q: %s", rec.Status, rec.Error)
+	}
 }
 
 func TestJournaledRecordingCallsNoAgent(t *testing.T) {

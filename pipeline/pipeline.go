@@ -10,9 +10,11 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"sync"
@@ -38,6 +40,9 @@ type Options struct {
 	ToolsFor func(agent string) []string
 	// Embedder is nil when embedding is off.
 	Embedder embedding.Embedder
+	// Transcriber turns the audio of a recording that arrived without text
+	// into its transcription. Nil when no transcription model is configured.
+	Transcriber Transcriber
 	// Workers is the number of recordings processed at once.
 	Workers int
 	// MaxAttempts is how many times a recording is tried before it is failed.
@@ -45,6 +50,12 @@ type Options struct {
 	// IdlePoll is how often a worker looks for work without being notified.
 	IdlePoll time.Duration
 	Logger   *slog.Logger
+}
+
+// Transcriber turns audio into text.
+type Transcriber interface {
+	Transcribe(ctx context.Context, audio io.Reader, contentType string) (string, error)
+	Model() string
 }
 
 // Pipeline processes recordings until its context is cancelled.
@@ -201,8 +212,17 @@ func (p *Pipeline) process(ctx context.Context, rec store.Recording) {
 	log.Info("processed recording", "elapsed", time.Since(started).Round(time.Millisecond))
 }
 
-// handle routes, embeds and runs the agent for one recording.
+// handle transcribes, routes, embeds and runs the agent for one recording.
 func (p *Pipeline) handle(ctx context.Context, rec store.Recording, log *slog.Logger) error {
+	if rec.Transcription == "" {
+		text, err := p.transcribe(ctx, rec)
+		if err != nil {
+			return err
+		}
+		rec.Transcription = text
+		log.Info("transcribed recording", "model", p.opts.Transcriber.Model())
+	}
+
 	decision := p.opts.Router.Route(ctx, rec.Transcription)
 	log.Info("routed recording", "agent", decision.Agent, "reason", decision.Reason)
 
@@ -276,6 +296,31 @@ func (p *Pipeline) handle(ctx context.Context, rec store.Recording, log *slog.Lo
 		"input_tokens", res.InputTokens,
 		"output_tokens", res.OutputTokens)
 	return nil
+}
+
+// transcribe produces and stores the text of a recording that arrived as audio.
+func (p *Pipeline) transcribe(ctx context.Context, rec store.Recording) (string, error) {
+	if p.opts.Transcriber == nil {
+		return "", errors.New("the recording has no text and no transcription model is configured")
+	}
+	if rec.AudioBytes == 0 {
+		return "", errors.New("the recording has no text and no audio to transcribe")
+	}
+	audio, err := p.opts.Store.Audio(ctx, rec.ID)
+	if err != nil {
+		return "", fmt.Errorf("read audio: %w", err)
+	}
+	text, err := p.opts.Transcriber.Transcribe(ctx, bytes.NewReader(audio), rec.AudioMIME)
+	if err != nil {
+		return "", err
+	}
+	if text == "" {
+		return "", errors.New("transcribe: no speech was recognized")
+	}
+	if err := p.opts.Store.Transcribed(ctx, rec.ID, text, p.opts.Transcriber.Model()); err != nil {
+		return "", fmt.Errorf("record transcription: %w", err)
+	}
+	return text, nil
 }
 
 // embed stores vectors for a recording's transcription.
