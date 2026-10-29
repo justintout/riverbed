@@ -316,13 +316,18 @@ function recorder() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const chunks = [];
-      media = new MediaRecorder(stream);
+      // Ask for a format: without one, some browsers report an empty mimeType
+      // and the upload would have no Content-Type.
+      const mimeType = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"]
+        .find((t) => MediaRecorder.isTypeSupported(t));
+      if (!mimeType) throw new Error("This browser cannot record in a format Riverbed can transcribe.");
+      media = new MediaRecorder(stream, { mimeType });
       media.addEventListener("dataavailable", (e) => chunks.push(e.data));
       media.addEventListener("stop", async () => {
         stream.getTracks().forEach((t) => t.stop());
         button.disabled = true;
         button.textContent = "Transcribing";
-        const audio = new Blob(chunks, { type: media.mimeType });
+        const audio = new Blob(chunks, { type: media.mimeType || mimeType });
         await act(api("notes/voice", { method: "POST", audio }));
       });
       media.start();
