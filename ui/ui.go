@@ -426,6 +426,10 @@ func (h *Handler) voice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	contentType := r.Header.Get("Content-Type")
+	if contentType == "" {
+		fail(w, http.StatusBadRequest, "the recording has no Content-Type, so its format is unknown")
+		return
+	}
 	text, err := h.opts.Transcriber.Transcribe(r.Context(), bytes.NewReader(audio), contentType)
 	if err != nil {
 		h.log.Error("ui: transcribe", "error", err)

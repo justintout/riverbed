@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,7 +48,14 @@ func TestVoiceNoteRecordsItsSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := do(h, "POST", "/api/notes/voice", "opus bytes")
+	if got := do(h, "POST", "/api/notes/voice", "opus bytes").Code; got != http.StatusBadRequest {
+		t.Fatalf("a recording without a Content-Type should be rejected: got %d", got)
+	}
+
+	post := httptest.NewRequest("POST", "/api/notes/voice", strings.NewReader("opus bytes"))
+	post.Header.Set("Content-Type", "audio/webm;codecs=opus")
+	req := httptest.NewRecorder()
+	h.ServeHTTP(req, post)
 	if req.Code != http.StatusCreated {
 		t.Fatalf("voice note: got %d %s", req.Code, req.Body)
 	}
