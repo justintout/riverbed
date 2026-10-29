@@ -525,6 +525,11 @@ function showStatus() {
       h("dt", {}, "Embedding"), h("dd", {}, s.embedding.enabled ? `${s.embedding.kind} ${s.embedding.model}` : "off (keyword search only)"),
       h("dt", {}, "Audio"), h("dd", {}, s.audio_retained ? "kept" : "discarded"),
       h("dt", {}, "Voice input"), h("dd", {}, s.voice_model || "off"),
+      h("dt", {}, "Index transcription"), h("dd", {}, {
+        off: "off (the device's text is used)",
+        missing: "when the device sends no text",
+        always: "always (the device's text is discarded)",
+      }[s.index_transcribe]),
       h("dt", {}, "MCP server"), h("dd", {}, s.mcp_serve ? "on" : "off"),
       h("dt", {}, "Login"), h("dd", {}, s.auth ? "password" : "none"))),
     block("Routing",

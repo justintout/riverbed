@@ -31,10 +31,11 @@ type App struct {
 	Tools  *tool.Registry
 	OAuth  *tool.OAuth
 
-	pipeline *pipeline.Pipeline
-	router   *route.Router
-	mux      *http.ServeMux
-	log      *slog.Logger
+	pipeline    *pipeline.Pipeline
+	transcriber *transcribe.Transcriber
+	router      *route.Router
+	mux         *http.ServeMux
+	log         *slog.Logger
 }
 
 // OpenOptions configures Open.
@@ -170,15 +171,24 @@ func (a *App) build(ctx context.Context, opts OpenOptions) error {
 	}
 	a.router = router
 
+	if cfg.Transcription.Enabled() {
+		a.transcriber, err = transcribe.New(cfg.Transcription)
+		if err != nil {
+			return err
+		}
+		a.log.Info("transcription enabled", "model", cfg.Transcription.Model, "index", cfg.Index.Transcribe)
+	}
+
 	a.pipeline, err = pipeline.New(pipeline.Options{
-		Store:    a.Store,
-		Router:   router,
-		Agents:   agents,
-		Tools:    a.Tools,
-		ToolsFor: a.toolsFor,
-		Embedder: embedder,
-		Workers:  cfg.Webhook.Workers,
-		Logger:   a.log,
+		Store:       a.Store,
+		Router:      router,
+		Agents:      agents,
+		Tools:       a.Tools,
+		ToolsFor:    a.toolsFor,
+		Embedder:    embedder,
+		Workers:     cfg.Webhook.Workers,
+		Transcriber: a.pipelineTranscriber(),
+		Logger:      a.log,
 	})
 	if err != nil {
 		return err
@@ -194,6 +204,15 @@ func (a *App) authorizer() tool.Authorizer {
 		return nil
 	}
 	return a.OAuth
+}
+
+// pipelineTranscriber returns the transcriber as a nil interface, not a typed
+// nil pointer, when transcription is off.
+func (a *App) pipelineTranscriber() pipeline.Transcriber {
+	if a.transcriber == nil {
+		return nil
+	}
+	return a.transcriber
 }
 
 // toolsFor returns the MCP servers the named agent may use.
@@ -216,6 +235,7 @@ func (a *App) routes(opts OpenOptions, embedder embedding.Embedder) error {
 		Token:         cfg.Webhook.Token,
 		RetainAudio:   cfg.Audio.Retain,
 		MaxAudioBytes: cfg.Audio.MaxBytes,
+		Transcribe:    cfg.Index.Transcribe,
 		Notify:        a.pipeline.Notify,
 		Logger:        a.log,
 	})
@@ -249,13 +269,8 @@ func (a *App) routes(opts OpenOptions, embedder embedding.Embedder) error {
 
 	if cfg.UI.Enabled {
 		var transcriber ui.Transcriber
-		if cfg.Transcription.Enabled() {
-			t, err := transcribe.New(cfg.Transcription)
-			if err != nil {
-				return err
-			}
-			transcriber = t
-			a.log.Info("voice input enabled", "model", cfg.Transcription.Model)
+		if a.transcriber != nil {
+			transcriber = a.transcriber
 		}
 		web, err := ui.New(ui.Options{
 			Store:       a.Store,

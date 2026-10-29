@@ -21,6 +21,7 @@ import (
 type Config struct {
 	Server    Server    `toml:"server"`
 	Webhook   Webhook   `toml:"webhook"`
+	Index     Index     `toml:"index"`
 	Store     Store     `toml:"store"`
 	Audio     Audio     `toml:"audio"`
 	Embedding Embedding `toml:"embedding"`
@@ -50,6 +51,26 @@ type Webhook struct {
 	// Workers is the number of recordings processed concurrently.
 	Workers int `toml:"workers"`
 }
+
+// Index holds settings for recordings from the Pebble Index 01.
+type Index struct {
+	// Transcribe decides when Riverbed transcribes a recording's audio with
+	// the [transcription] model: TranscribeOff, TranscribeMissing or
+	// TranscribeAlways.
+	Transcribe string `toml:"transcribe"`
+}
+
+// Values for index.transcribe.
+const (
+	// TranscribeOff stores what the device sent. Audio without text is kept
+	// but not routed.
+	TranscribeOff = "off"
+	// TranscribeMissing transcribes audio that arrived without text, which
+	// happens when the device sends audio only or its transcription failed.
+	TranscribeMissing = "missing"
+	// TranscribeAlways discards the device's text and transcribes the audio.
+	TranscribeAlways = "always"
+)
 
 // Store holds database settings.
 type Store struct {
@@ -261,6 +282,7 @@ func Default() Config {
 	return Config{
 		Server:    Server{Addr: ":8080"},
 		Webhook:   Webhook{Path: "/webhook/recording", Workers: 2},
+		Index:     Index{Transcribe: TranscribeOff},
 		Store:     Store{Path: "riverbed.db", PoolSize: 8},
 		Audio:     Audio{Retain: true, MaxBytes: 32 << 20},
 		Embedding: Embedding{Kind: "potion"},
@@ -505,6 +527,19 @@ func (c *Config) Validate() error {
 	}
 	if c.Webhook.Workers < 1 {
 		add("webhook.workers must be at least 1")
+	}
+	switch c.Index.Transcribe {
+	case TranscribeOff:
+	case TranscribeMissing, TranscribeAlways:
+		if !c.Transcription.Enabled() {
+			add("index.transcribe = %q needs a [transcription] model", c.Index.Transcribe)
+		}
+		if !c.Audio.Retain {
+			add("index.transcribe = %q needs audio.retain, because the audio is transcribed after it is stored",
+				c.Index.Transcribe)
+		}
+	default:
+		add("index.transcribe must be off, missing or always, not %q", c.Index.Transcribe)
 	}
 	if c.Store.Path == "" {
 		add("store.path is required")

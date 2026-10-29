@@ -407,6 +407,25 @@ api_key = "${RIVERBED_TRANSCRIPTION_API_KEY}"
 Browsers allow the microphone only on HTTPS pages and on `localhost`, so the button
 also stays hidden on a plain HTTP page.
 
+### Transcribing the Index's audio
+
+The Index can send audio, text, or both. By default Riverbed uses the device's
+text. A recording that arrives with audio and no text, either because the device
+sends audio only or because its transcription failed, is stored but not routed.
+`index.transcribe` changes that, using the same `[transcription]` model:
+
+```toml
+[index]
+# off, missing or always
+transcribe = "missing"
+```
+
+`missing` transcribes audio that arrived without text. `always` discards the
+device's text and transcribes every recording, so all notes come from one model.
+Either setting needs `audio.retain`, because a worker transcribes the stored audio
+before routing it. A failed transcription is retried, then marks the note failed
+with the error, and Retry on the note's page runs it again.
+
 Each note records its source and what transcribed it. The source is `index` for the
 device webhook and `web` for the web interface. The transcriber is `index` when the
 device sent the text, the model name when Riverbed transcribed it, and empty for a

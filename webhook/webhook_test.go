@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/justintout/riverbed/config"
 	"github.com/justintout/riverbed/store"
 )
 
@@ -76,7 +77,8 @@ func deviceRequest(t *testing.T, transcription string, recordedAt time.Time, aud
 
 func handler(t *testing.T, rec *recorder, tweak func(*Options)) *Handler {
 	t.Helper()
-	opts := Options{Receiver: rec, Token: "shared-secret", RetainAudio: true, MaxAudioBytes: 1 << 20}
+	opts := Options{Receiver: rec, Token: "shared-secret", RetainAudio: true, MaxAudioBytes: 1 << 20,
+		Transcribe: config.TranscribeOff}
 	if tweak != nil {
 		tweak(&opts)
 	}
@@ -142,6 +144,33 @@ func TestAudioOnlyRecording(t *testing.T) {
 	}
 	if rec.got[0].Transcription != "" {
 		t.Errorf("transcription = %q, want empty", rec.got[0].Transcription)
+	}
+}
+
+func TestTranscribeModeQueuesAudio(t *testing.T) {
+	cases := []struct {
+		mode, text     string
+		wantText       string
+		wantTranscribe bool
+	}{
+		{config.TranscribeOff, "", "", false},
+		{config.TranscribeMissing, "", "", true},
+		{config.TranscribeMissing, "device text", "device text", false},
+		{config.TranscribeAlways, "device text", "", true},
+	}
+	for _, c := range cases {
+		rec := &recorder{}
+		h := handler(t, rec, func(o *Options) { o.Transcribe = c.mode })
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, deviceRequest(t, c.text, time.Now(), []byte("m4a bytes")))
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("%s: status = %d: %s", c.mode, w.Code, w.Body)
+		}
+		got := rec.got[0]
+		if got.Transcription != c.wantText || got.Transcribe != c.wantTranscribe {
+			t.Errorf("mode %s with text %q should store text %q and queue transcription %v, got %q and %v",
+				c.mode, c.text, c.wantText, c.wantTranscribe, got.Transcription, got.Transcribe)
+		}
 	}
 }
 
@@ -348,10 +377,13 @@ func TestStoreFailureIsServerError(t *testing.T) {
 }
 
 func TestNewValidatesOptions(t *testing.T) {
-	if _, err := New(Options{Token: "t"}); err == nil {
+	if _, err := New(Options{Receiver: &recorder{}, Token: "t"}); err == nil {
+		t.Error("New accepted options without a transcribe mode")
+	}
+	if _, err := New(Options{Token: "t", Transcribe: config.TranscribeOff}); err == nil {
 		t.Error("want an error without a receiver")
 	}
-	if _, err := New(Options{Receiver: &recorder{}}); err == nil {
+	if _, err := New(Options{Receiver: &recorder{}, Transcribe: config.TranscribeOff}); err == nil {
 		t.Error("want an error without a token")
 	}
 }

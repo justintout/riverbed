@@ -665,6 +665,7 @@ type statusJSON struct {
 	Counts    map[string]int `json:"counts"`
 	Embedding embeddingJSON  `json:"embedding"`
 	Voice     string         `json:"voice_model,omitempty"`
+	Index     string         `json:"index_transcribe"`
 	Audio     bool           `json:"audio_retained"`
 	MCPServe  bool           `json:"mcp_serve"`
 	Router    routerJSON     `json:"router"`
@@ -721,6 +722,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		Embedding: embeddingJSON{Enabled: cfg.Embedding.Enabled(), Kind: cfg.Embedding.Kind, Model: cfg.Embedding.Model},
 		Audio:     cfg.Audio.Retain,
 		Voice:     cfg.Transcription.Model,
+		Index:     cfg.Index.Transcribe,
 		MCPServe:  cfg.MCPServe.Enabled,
 		Router:    routerJSON{Default: cfg.Router.Default, Classifier: cfg.Router.Classifier, Rules: []ruleJSON{}},
 		Agents:    []agentJSON{},

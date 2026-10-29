@@ -76,11 +76,21 @@ password = "${RIVERBED_UI_PASSWORD}"
 
 # Naming a model adds a Record button to the web interface. The recording is
 # sent to an OpenAI-compatible /v1/audio/transcriptions endpoint and stored as
-# a note. Leave base_url unset to use OpenAI.
+# a note. Leave base_url unset to use OpenAI. [index] below can use it too.
 # [transcription]
 # model = "whisper-1"
 # base_url = "http://localhost:8000/v1"
 # api_key = "${RIVERBED_TRANSCRIPTION_API_KEY}"
+
+# Whether Riverbed transcribes the audio the Index sends, with the
+# [transcription] model. Anything other than "off" needs that model and
+# audio.retain.
+#   off      use the device's text; audio without text is stored, not routed
+#   missing  transcribe audio that arrived without text, which happens when
+#            the device sends audio only or its own transcription failed
+#   always   discard the device's text and transcribe every recording
+[index]
+transcribe = "off"
 
 # ---------------------------------------------------------------------------
 # Agents

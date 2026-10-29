@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justintout/riverbed/config"
 	"github.com/justintout/riverbed/store"
 )
 
@@ -40,6 +41,9 @@ type Options struct {
 	RetainAudio bool
 	// MaxAudioBytes rejects recordings whose audio exceeds this size.
 	MaxAudioBytes int64
+	// Transcribe is index.transcribe: which recordings with audio are queued
+	// for the pipeline to transcribe.
+	Transcribe string
 	// Notify is called after a recording is stored, so a worker can wake
 	// without polling. It must not block.
 	Notify func()
@@ -59,6 +63,11 @@ func New(opts Options) (*Handler, error) {
 	}
 	if opts.Token == "" {
 		return nil, errors.New("webhook: token is required")
+	}
+	switch opts.Transcribe {
+	case config.TranscribeOff, config.TranscribeMissing, config.TranscribeAlways:
+	default:
+		return nil, fmt.Errorf("webhook: unknown transcribe mode %q", opts.Transcribe)
 	}
 	if opts.MaxAudioBytes <= 0 {
 		opts.MaxAudioBytes = 32 << 20
@@ -104,6 +113,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"client", rec.Client,
 		"recorded_at", rec.RecordedAt,
 		"transcribed", rec.Transcription != "",
+		"transcribe", rec.Transcribe,
 		"audio_bytes", len(rec.Audio))
 
 	if h.opts.Notify != nil {
@@ -234,6 +244,15 @@ func (h *Handler) parse(r *http.Request) (store.NewRecording, error) {
 	}
 	rec.RecordedAt = time.UnixMilli(ms)
 
+	if len(rec.Audio) > 0 {
+		switch h.opts.Transcribe {
+		case config.TranscribeMissing:
+			rec.Transcribe = rec.Transcription == ""
+		case config.TranscribeAlways:
+			rec.Transcription, rec.TranscribedBy = "", ""
+			rec.Transcribe = true
+		}
+	}
 	return rec, nil
 }
 

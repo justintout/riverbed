@@ -60,10 +60,14 @@ type NewRecording struct {
 	Transcription string
 	AudioMIME     string
 	Audio         []byte
+	// Transcribe queues a recording that has audio and no text, so that the
+	// pipeline transcribes it.
+	Transcribe bool
 }
 
 // Insert stores a recording and returns its id. A recording with no
-// transcription is stored as done, since there is nothing to route.
+// transcription is stored as done, since there is nothing to route, unless it
+// is marked to be transcribed.
 func (s *Store) Insert(ctx context.Context, r NewRecording) (int64, error) {
 	conn, release, err := s.conn(ctx)
 	if err != nil {
@@ -75,7 +79,7 @@ func (s *Store) Insert(ctx context.Context, r NewRecording) (int64, error) {
 		return 0, errors.New("store: insert recording: source is required")
 	}
 	status := StatusPending
-	if r.Transcription == "" {
+	if r.Transcription == "" && !r.Transcribe {
 		status = StatusDone
 	}
 
@@ -294,8 +298,19 @@ func (s *Store) AddTags(ctx context.Context, id int64, tags []string) error {
 }
 
 // SetTranscription replaces a recording's text and drops its embeddings, which
-// describe the old text. The keyword index follows by trigger.
+// describe the old text. The keyword index follows by trigger. The transcriber
+// is kept, since an edit corrects its text rather than replacing it.
 func (s *Store) SetTranscription(ctx context.Context, id int64, text string) error {
+	return s.setTranscription(ctx, id, text, nil)
+}
+
+// Transcribed stores text a transcriber produced, and names the transcriber.
+func (s *Store) Transcribed(ctx context.Context, id int64, text, by string) error {
+	return s.setTranscription(ctx, id, text, by)
+}
+
+// setTranscription leaves transcribed_by alone when by is nil.
+func (s *Store) setTranscription(ctx context.Context, id int64, text string, by any) error {
 	conn, release, err := s.conn(ctx)
 	if err != nil {
 		return err
@@ -307,8 +322,9 @@ func (s *Store) SetTranscription(ctx context.Context, id int64, text string) err
 		return fmt.Errorf("store: set transcription: %w", err)
 	}
 	err = func() error {
-		if err := sqlitex.Execute(conn, `UPDATE recordings SET transcription = ?1 WHERE id = ?2`,
-			&sqlitex.ExecOptions{Args: []any{nullable(text), id}}); err != nil {
+		if err := sqlitex.Execute(conn,
+			`UPDATE recordings SET transcription = ?1, transcribed_by = coalesce(?3, transcribed_by) WHERE id = ?2`,
+			&sqlitex.ExecOptions{Args: []any{nullable(text), id, by}}); err != nil {
 			return err
 		}
 		if conn.Changes() == 0 {
